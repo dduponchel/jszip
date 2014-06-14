@@ -9,35 +9,29 @@ Dual licenced under the MIT license or GPLv3. See https://raw.github.com/Stuk/js
 JSZip uses the library pako released under the MIT license :
 https://github.com/nodeca/pako/blob/master/LICENSE
 */
-!function(e){"object"==typeof exports?module.exports=e():"function"==typeof define&&define.amd?define(e):"undefined"!=typeof window?window.JSZip=e():"undefined"!=typeof global?global.JSZip=e():"undefined"!=typeof self&&(self.JSZip=e())}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+!function(e){if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();else if("function"==typeof define&&define.amd)define([],e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.JSZip=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
 'use strict';
 // private property
 var _keyStr = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
 
 
 // public method for encoding
-exports.encode = function(input, utf8) {
+exports.encode = function(input) {
     var output = "";
     var chr1, chr2, chr3, enc1, enc2, enc3, enc4;
-    var i = 0;
+    var i = 0, len = input.length, remainingBytes = len;
 
     while (i < input.length) {
+        remainingBytes = len - i;
 
         chr1 = input.charCodeAt(i++);
-        chr2 = input.charCodeAt(i++);
-        chr3 = input.charCodeAt(i++);
+        chr2 = i < len ? input.charCodeAt(i++) : 0;
+        chr3 = i < len ? input.charCodeAt(i++) : 0;
 
         enc1 = chr1 >> 2;
         enc2 = ((chr1 & 3) << 4) | (chr2 >> 4);
-        enc3 = ((chr2 & 15) << 2) | (chr3 >> 6);
-        enc4 = chr3 & 63;
-
-        if (isNaN(chr2)) {
-            enc3 = enc4 = 64;
-        }
-        else if (isNaN(chr3)) {
-            enc4 = 64;
-        }
+        enc3 = remainingBytes > 1 ? (((chr2 & 15) << 2) | (chr3 >> 6)) : 64;
+        enc4 = remainingBytes > 2 ? (chr3 & 63) : 64;
 
         output = output + _keyStr.charAt(enc1) + _keyStr.charAt(enc2) + _keyStr.charAt(enc3) + _keyStr.charAt(enc4);
 
@@ -47,7 +41,7 @@ exports.encode = function(input, utf8) {
 };
 
 // public method for decoding
-exports.decode = function(input, utf8) {
+exports.decode = function(input) {
     var output = "";
     var chr1, chr2, chr3;
     var enc1, enc2, enc3, enc4;
@@ -81,14 +75,26 @@ exports.decode = function(input, utf8) {
 
 };
 
-},{}],2:[function(require,module,exports){
+},{}],2:[function(_dereq_,module,exports){
 'use strict';
-function CompressedObject() {
-    this.compressedSize = 0;
-    this.uncompressedSize = 0;
-    this.crc32 = 0;
-    this.compressionMethod = null;
-    this.compressedContent = null;
+
+var utils = _dereq_('./utils');
+
+/**
+ * Represent a compressed object, with everything needed to decompress it.
+ * @constructor
+ * @param {number} compressedSize the size of the data compressed.
+ * @param {number} uncompressedSize the size of the data after decompression.
+ * @param {number} crc32 the crc32 of the decompressed file.
+ * @param {object} compression the type of compression, see lib/compressions.js.
+ * @param {String|ArrayBuffer|Uint8Array|Buffer} data the compressed data.
+ */
+function CompressedObject(compressedSize, uncompressedSize, crc32, compression, data) {
+    this.compressedSize = compressedSize;
+    this.uncompressedSize = uncompressedSize;
+    this.crc32 = crc32;
+    this.compression = compression;
+    this.compressedContent = data;
 }
 
 CompressedObject.prototype = {
@@ -98,37 +104,1272 @@ CompressedObject.prototype = {
      * @return {Object} the decompressed content.
      */
     getContent: function() {
-        return null; // see implementation
+        var compressedFileData = utils.transformTo(this.compression.uncompressInputType, this.compressedContent);
+        var uncompressedFileData = this.compression.uncompress(compressedFileData);
+
+        if (uncompressedFileData.length !== this.uncompressedSize) {
+            throw new Error("Bug : uncompressed data size mismatch");
+        }
+        return uncompressedFileData;
     },
     /**
-     * Return the compressed content in an unspecified format.
-     * The format will depend on the compressed conten source.
-     * @return {Object} the compressed content.
+     * Get the decompressed content in an unspecified format.
+     * The format will depend on the decompressor.
+     * @param {Function} callback the callback to call when the content is ready.
+     *  The callback is called with :
+     *  - an error (if any)
+     *  - the decompressed content.
      */
-    getCompressedContent: function() {
-        return null; // see implementation
+    getContentAsync: function(callback) {
+        var compressedFileData = utils.transformTo(this.compression.uncompressInputType, this.compressedContent);
+        var self = this;
+        this.compression.uncompressAsync(compressedFileData, function (err, uncompressedFileData) {
+            if(!err) {
+                if (uncompressedFileData.length !== self.uncompressedSize) {
+                    err = new Error("Bug : uncompressed data size mismatch");
+                }
+            }
+            callback(err, uncompressedFileData);
+        });
+    },
+    /**
+     * Change the compression type (DEFLATE -> STORE for example).
+     * @param {Object} compression the new compression.
+     */
+    recompress: function (compression) {
+        if (this.compression.magic !== compression.magic) {
+            var content = this.getContent();
+            // need to decompress / recompress
+            this.compressedContent = compression.compress(utils.transformTo(compression.compressInputType, content));
+            this.compressedSize = this.compressedContent.length;
+            this.compression = compression;
+        }
+    },
+    /**
+     * Change the compression type (DEFLATE -> STORE for example).
+     * @param {Object} compression the new compression.
+     * @param {Function} callback the function to call with the result.
+     *  The callback is called with :
+     *  - an error (if any)
+     *  - the current CompressedObject, with the right compression.
+     */
+    recompressAsync: function (compression, callback) {
+        if (this.compression.magic !== compression.magic) {
+            // need to decompress / recompress
+            var self = this;
+            utils.asyncSequence(this, [
+                function(compressed, cb) {
+                    compressed.getContentAsync(cb);
+                }, function (content, cb) {
+                    compression.compressAsync(utils.transformTo(compression.compressInputType, content), cb);
+                }, function (compressedContent, cb) {
+                    self.compressedContent = compressedContent;
+                    self.compressedSize = self.compressedContent.length;
+                    self.compression = compression;
+                    cb(null, self);
+                }
+            ], callback);
+        } else {
+            callback(null, this);
+        }
     }
 };
 module.exports = CompressedObject;
 
-},{}],3:[function(require,module,exports){
+// vim: set shiftwidth=4 softtabstop=4:
+
+},{"./utils":19}],3:[function(_dereq_,module,exports){
 'use strict';
+
+var utils = _dereq_("./utils");
+
 exports.STORE = {
     magic: "\x00\x00",
     compress: function(content) {
         return content; // no compression
     },
     uncompress: function(content) {
-        return content; // no compression
+        // return content; // no compression
+
+        var result = content;
+        if (utils.getTypeOf(content) === "uint8array") {
+            // when reading an arraybuffer, the CompressedObject mechanism will
+            // keep it and subarray() a Uint8Array. If we request a file in the
+            // same format, we might get the same Uint8Array or its ArrayBuffer
+            // (the original zip file). This only happens with STORE since
+            // other compression methods will create a new ArrayBuffer.
+            result = new Uint8Array(content.length);
+            // with an empty Uint8Array, Opera fails with a "Offset larger than array size"
+            if (result.length !== 0) {
+                result.set(content, 0);
+            }
+        }
+
+        return result;
+    },
+    compressAsync : function (content, callback) {
+      callback(null, exports.STORE.compress(content));
+    },
+    uncompressAsync : function (content, callback) {
+      callback(null, exports.STORE.uncompress(content));
     },
     compressInputType: null,
     uncompressInputType: null
 };
-exports.DEFLATE = require('./flate');
+exports.DEFLATE = _dereq_('./flate');
 
-},{"./flate":6}],4:[function(require,module,exports){
+},{"./flate":7,"./utils":19}],4:[function(_dereq_,module,exports){
 'use strict';
-var utils = require('./utils');
+
+var utils = _dereq_('./utils');
+
+var table = [
+    0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA,
+    0x076DC419, 0x706AF48F, 0xE963A535, 0x9E6495A3,
+    0x0EDB8832, 0x79DCB8A4, 0xE0D5E91E, 0x97D2D988,
+    0x09B64C2B, 0x7EB17CBD, 0xE7B82D07, 0x90BF1D91,
+    0x1DB71064, 0x6AB020F2, 0xF3B97148, 0x84BE41DE,
+    0x1ADAD47D, 0x6DDDE4EB, 0xF4D4B551, 0x83D385C7,
+    0x136C9856, 0x646BA8C0, 0xFD62F97A, 0x8A65C9EC,
+    0x14015C4F, 0x63066CD9, 0xFA0F3D63, 0x8D080DF5,
+    0x3B6E20C8, 0x4C69105E, 0xD56041E4, 0xA2677172,
+    0x3C03E4D1, 0x4B04D447, 0xD20D85FD, 0xA50AB56B,
+    0x35B5A8FA, 0x42B2986C, 0xDBBBC9D6, 0xACBCF940,
+    0x32D86CE3, 0x45DF5C75, 0xDCD60DCF, 0xABD13D59,
+    0x26D930AC, 0x51DE003A, 0xC8D75180, 0xBFD06116,
+    0x21B4F4B5, 0x56B3C423, 0xCFBA9599, 0xB8BDA50F,
+    0x2802B89E, 0x5F058808, 0xC60CD9B2, 0xB10BE924,
+    0x2F6F7C87, 0x58684C11, 0xC1611DAB, 0xB6662D3D,
+    0x76DC4190, 0x01DB7106, 0x98D220BC, 0xEFD5102A,
+    0x71B18589, 0x06B6B51F, 0x9FBFE4A5, 0xE8B8D433,
+    0x7807C9A2, 0x0F00F934, 0x9609A88E, 0xE10E9818,
+    0x7F6A0DBB, 0x086D3D2D, 0x91646C97, 0xE6635C01,
+    0x6B6B51F4, 0x1C6C6162, 0x856530D8, 0xF262004E,
+    0x6C0695ED, 0x1B01A57B, 0x8208F4C1, 0xF50FC457,
+    0x65B0D9C6, 0x12B7E950, 0x8BBEB8EA, 0xFCB9887C,
+    0x62DD1DDF, 0x15DA2D49, 0x8CD37CF3, 0xFBD44C65,
+    0x4DB26158, 0x3AB551CE, 0xA3BC0074, 0xD4BB30E2,
+    0x4ADFA541, 0x3DD895D7, 0xA4D1C46D, 0xD3D6F4FB,
+    0x4369E96A, 0x346ED9FC, 0xAD678846, 0xDA60B8D0,
+    0x44042D73, 0x33031DE5, 0xAA0A4C5F, 0xDD0D7CC9,
+    0x5005713C, 0x270241AA, 0xBE0B1010, 0xC90C2086,
+    0x5768B525, 0x206F85B3, 0xB966D409, 0xCE61E49F,
+    0x5EDEF90E, 0x29D9C998, 0xB0D09822, 0xC7D7A8B4,
+    0x59B33D17, 0x2EB40D81, 0xB7BD5C3B, 0xC0BA6CAD,
+    0xEDB88320, 0x9ABFB3B6, 0x03B6E20C, 0x74B1D29A,
+    0xEAD54739, 0x9DD277AF, 0x04DB2615, 0x73DC1683,
+    0xE3630B12, 0x94643B84, 0x0D6D6A3E, 0x7A6A5AA8,
+    0xE40ECF0B, 0x9309FF9D, 0x0A00AE27, 0x7D079EB1,
+    0xF00F9344, 0x8708A3D2, 0x1E01F268, 0x6906C2FE,
+    0xF762575D, 0x806567CB, 0x196C3671, 0x6E6B06E7,
+    0xFED41B76, 0x89D32BE0, 0x10DA7A5A, 0x67DD4ACC,
+    0xF9B9DF6F, 0x8EBEEFF9, 0x17B7BE43, 0x60B08ED5,
+    0xD6D6A3E8, 0xA1D1937E, 0x38D8C2C4, 0x4FDFF252,
+    0xD1BB67F1, 0xA6BC5767, 0x3FB506DD, 0x48B2364B,
+    0xD80D2BDA, 0xAF0A1B4C, 0x36034AF6, 0x41047A60,
+    0xDF60EFC3, 0xA867DF55, 0x316E8EEF, 0x4669BE79,
+    0xCB61B38C, 0xBC66831A, 0x256FD2A0, 0x5268E236,
+    0xCC0C7795, 0xBB0B4703, 0x220216B9, 0x5505262F,
+    0xC5BA3BBE, 0xB2BD0B28, 0x2BB45A92, 0x5CB36A04,
+    0xC2D7FFA7, 0xB5D0CF31, 0x2CD99E8B, 0x5BDEAE1D,
+    0x9B64C2B0, 0xEC63F226, 0x756AA39C, 0x026D930A,
+    0x9C0906A9, 0xEB0E363F, 0x72076785, 0x05005713,
+    0x95BF4A82, 0xE2B87A14, 0x7BB12BAE, 0x0CB61B38,
+    0x92D28E9B, 0xE5D5BE0D, 0x7CDCEFB7, 0x0BDBDF21,
+    0x86D3D2D4, 0xF1D4E242, 0x68DDB3F8, 0x1FDA836E,
+    0x81BE16CD, 0xF6B9265B, 0x6FB077E1, 0x18B74777,
+    0x88085AE6, 0xFF0F6A70, 0x66063BCA, 0x11010B5C,
+    0x8F659EFF, 0xF862AE69, 0x616BFFD3, 0x166CCF45,
+    0xA00AE278, 0xD70DD2EE, 0x4E048354, 0x3903B3C2,
+    0xA7672661, 0xD06016F7, 0x4969474D, 0x3E6E77DB,
+    0xAED16A4A, 0xD9D65ADC, 0x40DF0B66, 0x37D83BF0,
+    0xA9BCAE53, 0xDEBB9EC5, 0x47B2CF7F, 0x30B5FFE9,
+    0xBDBDF21C, 0xCABAC28A, 0x53B39330, 0x24B4A3A6,
+    0xBAD03605, 0xCDD70693, 0x54DE5729, 0x23D967BF,
+    0xB3667A2E, 0xC4614AB8, 0x5D681B02, 0x2A6F2B94,
+    0xB40BBE37, 0xC30C8EA1, 0x5A05DF1B, 0x2D02EF8D
+];
+
+/**
+ *
+ *  Javascript crc32
+ *  http://www.webtoolkit.info/
+ *
+ */
+module.exports = function crc32(input, crc) {
+    if (typeof input === "undefined" || !input.length) {
+        return 0;
+    }
+
+    var isArray = utils.getTypeOf(input) !== "string";
+
+    if (typeof(crc) == "undefined") {
+        crc = 0;
+    }
+    var x = 0;
+    var y = 0;
+    var b = 0;
+
+    crc = crc ^ (-1);
+    for (var i = 0, iTop = input.length; i < iTop; i++) {
+        b = isArray ? input[i] : input.charCodeAt(i);
+        y = (crc ^ b) & 0xFF;
+        x = table[y];
+        crc = (crc >>> 8) ^ x;
+    }
+
+    return crc ^ (-1);
+};
+// vim: set shiftwidth=4 softtabstop=4:
+
+},{"./utils":19}],5:[function(_dereq_,module,exports){
+'use strict';
+exports.base64 = false;
+exports.binary = false;
+exports.dir = false;
+exports.date = null;
+exports.compression = null;
+exports.comment = null;
+
+},{}],6:[function(_dereq_,module,exports){
+'use strict';
+var utils = _dereq_('./utils');
+
+/**
+ * @deprecated
+ * This function will be removed in a future version without replacement.
+ */
+exports.string2binary = function(str) {
+    return utils.string2binary(str);
+};
+
+/**
+ * @deprecated
+ * This function will be removed in a future version without replacement.
+ */
+exports.string2Uint8Array = function(str) {
+    return utils.transformTo("uint8array", str);
+};
+
+/**
+ * @deprecated
+ * This function will be removed in a future version without replacement.
+ */
+exports.uint8Array2String = function(array) {
+    return utils.transformTo("string", array);
+};
+
+/**
+ * @deprecated
+ * This function will be removed in a future version without replacement.
+ */
+exports.string2Blob = function(str) {
+    var buffer = utils.transformTo("arraybuffer", str);
+    return utils.newBlob(buffer, "application/zip");
+};
+
+/**
+ * @deprecated
+ * This function will be removed in a future version without replacement.
+ */
+exports.arrayBuffer2Blob = function(buffer) {
+    return utils.arrayBuffer2Blob(buffer);
+};
+
+/**
+ * @deprecated
+ * This function will be removed in a future version without replacement.
+ */
+exports.transformTo = function(outputType, input) {
+    return utils.transformTo(outputType, input);
+};
+
+/**
+ * @deprecated
+ * This function will be removed in a future version without replacement.
+ */
+exports.getTypeOf = function(input) {
+    return utils.getTypeOf(input);
+};
+
+/**
+ * @deprecated
+ * This function will be removed in a future version without replacement.
+ */
+exports.checkSupport = function(type) {
+    return utils.checkSupport(type);
+};
+
+/**
+ * @deprecated
+ * This value will be removed in a future version without replacement.
+ */
+exports.MAX_VALUE_16BITS = utils.MAX_VALUE_16BITS;
+
+/**
+ * @deprecated
+ * This value will be removed in a future version without replacement.
+ */
+exports.MAX_VALUE_32BITS = utils.MAX_VALUE_32BITS;
+
+
+/**
+ * @deprecated
+ * This function will be removed in a future version without replacement.
+ */
+exports.pretty = function(str) {
+    return utils.pretty(str);
+};
+
+/**
+ * @deprecated
+ * This function will be removed in a future version without replacement.
+ */
+exports.findCompression = function(compressionMethod) {
+    return utils.findCompression(compressionMethod);
+};
+
+/**
+ * @deprecated
+ * This function will be removed in a future version without replacement.
+ */
+exports.isRegExp = function (object) {
+    return utils.isRegExp(object);
+};
+
+
+},{"./utils":19}],7:[function(_dereq_,module,exports){
+'use strict';
+var USE_TYPEDARRAY = (typeof Uint8Array !== 'undefined') && (typeof Uint16Array !== 'undefined') && (typeof Uint32Array !== 'undefined');
+
+var pako = _dereq_("pako");
+var utils = _dereq_("./utils");
+
+var nodejsUtils = _dereq_('./nodejsUtils');
+
+var ARRAY_TYPE = USE_TYPEDARRAY ? "uint8array" : "array";
+exports.uncompressInputType = null; // the conversion is handled in each method.
+exports.compressInputType = null; // the conversion is handled in each method.
+
+exports.magic = "\x08\x00";
+exports.compress = function(input) {
+    input = utils.transformTo(ARRAY_TYPE, input);
+    return pako.deflateRaw(input);
+};
+exports.uncompress =  function(input) {
+    input = utils.transformTo(ARRAY_TYPE, input);
+    return pako.inflateRaw(input);
+};
+
+exports.compressAsync = function (input, callback) {
+    // if possible, use the nodejs zlib interface.
+    if (nodejsUtils.zlib) {
+        nodejsUtils.zlib.deflateRaw(
+            utils.transformTo("nodebuffer", input),
+            callback
+        );
+        return;
+    }
+    flateAsync("Deflate", input, callback);
+};
+
+/**
+ * Prepare the function needed to INFLATE or DEFLATE the part between
+ * `from` and `to` in the input.
+ * @param {Uint8Array|Array} input the compressed input.
+ * @param {String} type the type of the input.
+ * @param {Number} from the starting index for this execution.
+ * @param {Number} to the ending index for this execution.
+ * @return {Function} the function, ready to be called by utils.asyncSequence.
+ */
+function prepareFlateAsync(input, type, from, to) {
+    input = utils.transformTo(ARRAY_TYPE, input);
+    return function (inflate, cb) {
+        if (type === "uint8array") {
+            inflate.push(input.subarray(from, to), false);
+        } else {
+            inflate.push(input.slice(from, to), false);
+        }
+        utils.delay(cb, [inflate.err, inflate]);
+    };
+}
+
+/**
+ * Inflate or deflate an input by chunks.
+ * @param {String} action "Inflate" or "Deflate", the name of pako's objects.
+ * @param {Uint8Array|Array} input the input to inflate / deflate.
+ * @param {Function} callback the function to call when the result is ready.
+ *  The callback is called with :
+ *  - an error (if any)
+ *  - the inflated / deflated result.
+ */
+function flateAsync(action, input, callback) {
+    var len = input.length, from = 0, to = 0, chunk = 1 << 20;
+    var type = utils.getTypeOf(input);
+    var flate = new pako[action]({raw:true});
+
+    var steps = [];
+
+    // for large content, we should split the work into smaller chunk
+    while (from < len) {
+        to = Math.min(from + chunk, len);
+        steps.push(prepareFlateAsync(input, type, from, to));
+        from += chunk;
+    }
+
+    utils.asyncSequence.call(utils, flate, steps, function (err, flate) {
+        if(err) {
+            callback(err, null);
+            return;
+        }
+
+        // dummy push, force end
+        flate.push([], true);
+        if(flate.err) {
+            callback(new Error(action + " : error " + flate.err + " : " + flate.msg), null);
+        } else {
+            callback(null, flate.result);
+        }
+    });
+
+}
+
+exports.uncompressAsync = function (input, callback) {
+    // if possible, use the nodejs zlib interface.
+    if (nodejsUtils.zlib) {
+        nodejsUtils.zlib.inflateRaw(
+            utils.transformTo("nodebuffer", input),
+            callback
+        );
+        return;
+    }
+
+    flateAsync("Inflate", input, callback);
+};
+
+},{"./nodejsUtils":25,"./utils":19,"pako":26}],8:[function(_dereq_,module,exports){
+'use strict';
+
+var utils = _dereq_('./utils');
+var utf8 = _dereq_('./utf8');
+var crc32 = _dereq_('./crc32');
+var signature = _dereq_('./signature');
+var base64 = _dereq_('./base64');
+var compressions = _dereq_('./compressions');
+var StringWriter = _dereq_('./writer/stringWriter');
+var Uint8ArrayWriter = _dereq_('./writer/uint8ArrayWriter');
+
+
+/**
+ * Transform an integer into a string in hexadecimal.
+ * @private
+ * @param {number} dec the number to convert.
+ * @param {number} bytes the number of bytes to generate.
+ * @returns {string} the result.
+ */
+var decToHex = function(dec, bytes) {
+    var hex = "",
+        i;
+    for (i = 0; i < bytes; i++) {
+        hex += String.fromCharCode(dec & 0xff);
+        dec = dec >>> 8;
+    }
+    return hex;
+};
+
+/**
+ * Generate the various parts used in the construction of the final zip file.
+ * @param {ZipObject} file the file content.
+ * @param {JSZip.CompressedObject} compressedObject the compressed object.
+ * @param {number} offset the current offset from the start of the zip file.
+ * @return {object} the zip parts.
+ */
+var generateZipParts = function(file, compressedObject, offset) {
+    var data = compressedObject.compressedContent,
+        utfEncodedFileName = utils.transformTo("string", utf8.utf8encode(file.name)),
+        comment = file.comment || "",
+        utfEncodedComment = utils.transformTo("string", utf8.utf8encode(comment)),
+        useUTF8ForFileName = utfEncodedFileName.length !== file.name.length,
+        useUTF8ForComment = utfEncodedComment.length !== comment.length,
+        o = file.options,
+        dosTime,
+        dosDate,
+        extraFields = "",
+        unicodePathExtraField = "",
+        unicodeCommentExtraField = "",
+        dir, date;
+
+
+    // handle the deprecated options.dir
+    if (file._initialMetadata.dir !== file.dir) {
+        dir = file.dir;
+    } else {
+        dir = o.dir;
+    }
+
+    // handle the deprecated options.date
+    if(file._initialMetadata.date !== file.date) {
+        date = file.date;
+    } else {
+        date = o.date;
+    }
+
+    // date
+    // @see http://www.delorie.com/djgpp/doc/rbinter/it/52/13.html
+    // @see http://www.delorie.com/djgpp/doc/rbinter/it/65/16.html
+    // @see http://www.delorie.com/djgpp/doc/rbinter/it/66/16.html
+
+    dosTime = date.getHours();
+    dosTime = dosTime << 6;
+    dosTime = dosTime | date.getMinutes();
+    dosTime = dosTime << 5;
+    dosTime = dosTime | date.getSeconds() / 2;
+
+    dosDate = date.getFullYear() - 1980;
+    dosDate = dosDate << 4;
+    dosDate = dosDate | (date.getMonth() + 1);
+    dosDate = dosDate << 5;
+    dosDate = dosDate | date.getDate();
+
+    if (useUTF8ForFileName) {
+        // set the unicode path extra field. unzip needs at least one extra
+        // field to correctly handle unicode path, so using the path is as good
+        // as any other information. This could improve the situation with
+        // other archive managers too.
+        // This field is usually used without the utf8 flag, with a non
+        // unicode path in the header (winrar, winzip). This helps (a bit)
+        // with the messy Windows' default compressed folders feature but
+        // breaks on p7zip which doesn't seek the unicode path extra field.
+        // So for now, UTF-8 everywhere !
+        unicodePathExtraField =
+            // Version
+            decToHex(1, 1) +
+            // NameCRC32
+            decToHex(crc32(utfEncodedFileName), 4) +
+            // UnicodeName
+            utfEncodedFileName;
+
+        extraFields +=
+            // Info-ZIP Unicode Path Extra Field
+            "\x75\x70" +
+            // size
+            decToHex(unicodePathExtraField.length, 2) +
+            // content
+            unicodePathExtraField;
+    }
+
+    if(useUTF8ForComment) {
+
+        unicodeCommentExtraField =
+            // Version
+            decToHex(1, 1) +
+            // CommentCRC32
+            decToHex(this.crc32(utfEncodedComment), 4) +
+            // UnicodeName
+            utfEncodedComment;
+
+        extraFields +=
+            // Info-ZIP Unicode Path Extra Field
+            "\x75\x63" +
+            // size
+            decToHex(unicodeCommentExtraField.length, 2) +
+            // content
+            unicodeCommentExtraField;
+    }
+
+    var header = "";
+
+    // version needed to extract
+    header += "\x0A\x00";
+    // general purpose bit flag
+    // set bit 11 if utf8
+    header += (useUTF8ForFileName || useUTF8ForComment) ? "\x00\x08" : "\x00\x00";
+    // compression method
+    header += compressedObject.compression.magic;
+    // last mod file time
+    header += decToHex(dosTime, 2);
+    // last mod file date
+    header += decToHex(dosDate, 2);
+    // crc-32
+    header += decToHex(compressedObject.crc32, 4);
+    // compressed size
+    header += decToHex(compressedObject.compressedSize, 4);
+    // uncompressed size
+    header += decToHex(compressedObject.uncompressedSize, 4);
+    // file name length
+    header += decToHex(utfEncodedFileName.length, 2);
+    // extra field length
+    header += decToHex(extraFields.length, 2);
+
+
+    var fileRecord = signature.LOCAL_FILE_HEADER + header + utfEncodedFileName + extraFields;
+
+    var dirRecord = signature.CENTRAL_FILE_HEADER +
+    // version made by (00: DOS)
+    "\x14\x00" +
+    // file header (common to file and central directory)
+    header +
+    // file comment length
+    decToHex(utfEncodedComment.length, 2) +
+    // disk number start
+    "\x00\x00" +
+    // internal file attributes TODO
+    "\x00\x00" +
+    // external file attributes
+    (dir === true ? "\x10\x00\x00\x00" : "\x00\x00\x00\x00") +
+    // relative offset of local header
+    decToHex(offset, 4) +
+    // file name
+    utfEncodedFileName +
+    // extra field
+    extraFields +
+    // file comment
+    utfEncodedComment;
+
+    return {
+        fileRecord: fileRecord,
+        dirRecord: dirRecord,
+        compressedObject: compressedObject
+    };
+};
+
+/**
+ * Generate the EOCD record.
+ * @param {Number} entriesCount the number of entries in the zip file.
+ * @param {Number} centralDirLength the length (in bytes) of the central dir.
+ * @param {Number} localDirLength the length (in bytes) of the local dir.
+ * @param {String} utfEncodedComment the zip file comment as a binary string.
+ * @return {String} the EOCD record.
+ */
+var generateCentralDirectoryEnd = function (entriesCount, centralDirLength, localDirLength, utfEncodedComment) {
+    var dirEnd = "";
+
+    // end of central dir signature
+    dirEnd = signature.CENTRAL_DIRECTORY_END +
+        // number of this disk
+        "\x00\x00" +
+        // number of the disk with the start of the central directory
+        "\x00\x00" +
+        // total number of entries in the central directory on this disk
+        decToHex(entriesCount, 2) +
+        // total number of entries in the central directory
+        decToHex(entriesCount, 2) +
+        // size of the central directory   4 bytes
+        decToHex(centralDirLength, 4) +
+        // offset of start of central directory with respect to the starting disk number
+        decToHex(localDirLength, 4) +
+        // .ZIP file comment length
+        decToHex(utfEncodedComment.length, 2) +
+        // .ZIP file comment
+        utfEncodedComment;
+
+    return dirEnd;
+};
+
+/**
+ * Find the compression to use.
+ * @param {String} fileCompression the compression defined at the file level, if any.
+ * @param {String} zipCompression the compression defined at the load() level.
+ * @return {Object} the compression object to use.
+ */
+var getCompression = function (fileCompression, zipCompression) {
+
+    var compressionName = fileCompression || zipCompression;
+    var compression = compressions[compressionName];
+    if (!compression) {
+        throw new Error(compressionName + " is not a valid compression method !");
+    }
+    return compression;
+};
+
+/**
+ * Compress every entries in the given object.
+ * @param {Object} files the object containing the files, one file per attribute of the object.
+ * @param {String} zipCompression the upper case name of the compression to use for the zip file.
+ * @return {Array} an array of compressed `ZipObject`s.
+ */
+exports.prepareCompressedEntries = function (files, zipCompression) {
+    var compressedEntries = [];
+    for (var name in files) {
+        if (!files.hasOwnProperty(name)) {
+            continue;
+        }
+        var file = files[name];
+
+        var compression = getCompression(file.options.compression, zipCompression);
+        file._compress(compression);
+        compressedEntries.push(file);
+    }
+    return compressedEntries;
+};
+
+/**
+ * Compress every entries in the given object.
+ * @param {Object} files the object containing the files, one file per attribute of the object.
+ * @param {String} zipCompression the upper case name of the compression to use for the zip file.
+ * @param {Function} callback the function to call with the result.
+ *  The callback is called with :
+ *  - an error (if any)
+ *  - an array of compressed `ZipObject`s.
+ */
+exports.prepareCompressedEntriesAsync = function (files, zipCompression, callback) {
+    var steps = [];
+
+    var compressOneFileFn = function (file, compression) {
+        return function (entries, cb) {
+            file._compressAsync(compression, function (err, compressed) {
+                if (err) {
+                    cb(err, null);
+                    return;
+                }
+                // assuming that `file` contains already `compressed`.
+                entries.push(file);
+                cb(null, entries);
+            });
+        };
+    };
+
+    for (var name in files) {
+        if (!files.hasOwnProperty(name)) {
+            continue;
+        }
+        var file = files[name];
+
+        var compression = null;
+        try {
+            compression = getCompression(file.options.compression, zipCompression);
+        } catch (e) {
+            utils.delay(callback, [e, null]);
+            return;
+        }
+
+        steps.push(compressOneFileFn(file, compression));
+    }
+
+    utils.asyncSequence([], steps, callback);
+};
+
+/**
+ * Generate a zip file with the given compressed `ZipObject`s.
+ * @param {String} type the lower case name of the output type.
+ * @param {Array} entries an array of compressed `ZipObject`s.
+ * @param {String} comment the comment of the zip file.
+ * @return {String|Uint8Array|ArrayBuffer|Buffer|Blob} the zip file
+ */
+exports.generateZipFile = function(type, entries, comment) {
+
+    var zipData = [],
+        localDirLength = 0,
+        centralDirLength = 0,
+        writer, i, len,
+        utfEncodedComment = utils.transformTo("string", utf8.utf8encode(comment));
+
+    // first, generate all the zip parts.
+    for(i = 0, len = entries.length; i < len ; i++) {
+        var file = entries[i];
+
+        var compressedObject = file._data;
+
+        var zipPart = generateZipParts(file, compressedObject, localDirLength);
+        localDirLength += zipPart.fileRecord.length + compressedObject.compressedSize;
+        centralDirLength += zipPart.dirRecord.length;
+        zipData.push(zipPart);
+    }
+
+    var dirEnd = generateCentralDirectoryEnd(zipData.length, centralDirLength, localDirLength, utfEncodedComment);
+
+    // we have all the parts (and the total length)
+    // time to create a writer !
+    if(type === "string" || type === "base64") {
+        writer = new StringWriter(localDirLength + centralDirLength + dirEnd.length);
+    }else{
+        writer = new Uint8ArrayWriter(localDirLength + centralDirLength + dirEnd.length);
+    }
+
+    for (i = 0, len = zipData.length; i < len; i++) {
+        writer.append(zipData[i].fileRecord);
+        writer.append(zipData[i].compressedObject.compressedContent);
+    }
+    for (i = 0, len = zipData.length; i < len; i++) {
+        writer.append(zipData[i].dirRecord);
+    }
+
+    writer.append(dirEnd);
+
+    var zip = writer.finalize();
+
+    switch(type) {
+        case "blob" :
+            return utils.newBlob(utils.transformTo("arraybuffer", zip), "application/zip");
+        case "base64" :
+            return base64.encode(zip);
+        default :
+            return utils.transformTo(type, zip);
+    }
+
+};
+
+},{"./base64":1,"./compressions":3,"./crc32":4,"./signature":16,"./utf8":18,"./utils":19,"./writer/stringWriter":20,"./writer/uint8ArrayWriter":21}],9:[function(_dereq_,module,exports){
+'use strict';
+
+var base64 = _dereq_('./base64');
+
+/**
+Usage:
+   zip = new JSZip();
+   zip.file("hello.txt", "Hello, World!").file("tempfile", "nothing");
+   zip.folder("images").file("smile.gif", base64Data, {base64: true});
+   zip.file("Xmas.txt", "Ho ho ho !", {date : new Date("December 25, 2007 00:00:01")});
+   zip.remove("tempfile");
+
+   base64zip = zip.generate();
+
+**/
+
+/**
+ * Representation a of zip file in js
+ * @constructor
+ * @param {String=|ArrayBuffer=|Uint8Array=} data the data to load, if any (optional).
+ * @param {Object=} options the options for creating this objects (optional).
+ */
+function JSZip(data, options) {
+    // if this constructor is used without `new`, it adds `new` before itself:
+    if(!(this instanceof JSZip)) return new JSZip(data, options);
+    
+    // object containing the files :
+    // {
+    //   "folder/" : {...},
+    //   "folder/data.txt" : {...}
+    // }
+    this.files = {};
+
+    this.comment = null;
+
+    // Where we are in the hierarchy
+    this.root = "";
+    if (data) {
+        this.load(data, options);
+    }
+    this.clone = function() {
+        var newObj = new JSZip();
+        for (var i in this) {
+            if (typeof this[i] !== "function") {
+                newObj[i] = this[i];
+            }
+        }
+        return newObj;
+    };
+}
+JSZip.prototype = _dereq_('./object');
+JSZip.prototype.load = _dereq_('./load');
+JSZip.support = _dereq_('./support');
+JSZip.defaults = _dereq_('./defaults');
+
+/**
+ * @deprecated
+ * This namespace will be removed in a future version without replacement.
+ */
+JSZip.utils = _dereq_('./deprecatedPublicUtils');
+
+JSZip.base64 = {
+    /**
+     * @deprecated
+     * This method will be removed in a future version without replacement.
+     */
+    encode : function(input) {
+        return base64.encode(input);
+    },
+    /**
+     * @deprecated
+     * This method will be removed in a future version without replacement.
+     */
+    decode : function(input) {
+        return base64.decode(input);
+    }
+};
+JSZip.compressions = _dereq_('./compressions');
+module.exports = JSZip;
+
+},{"./base64":1,"./compressions":3,"./defaults":5,"./deprecatedPublicUtils":6,"./load":10,"./object":11,"./support":17}],10:[function(_dereq_,module,exports){
+'use strict';
+var base64 = _dereq_('./base64');
+var ZipEntries = _dereq_('./zipEntries');
+module.exports = function(data, options) {
+    var files, zipEntries, i, input;
+    options = options || {};
+    if (options.base64) {
+        data = base64.decode(data);
+    }
+
+    zipEntries = new ZipEntries(data, options);
+    files = zipEntries.files;
+    for (i = 0; i < files.length; i++) {
+        input = files[i];
+        this.file(input.fileNameStr, input.decompressed, {
+            binary: true,
+            optimizedBinaryString: true,
+            date: input.date,
+            dir: input.dir,
+            comment : input.fileComment.length ? input.fileCommentStr : null
+        });
+    }
+    if (zipEntries.zipComment.length) {
+        this.comment = zipEntries.zipComment;
+    }
+
+    return this;
+};
+
+},{"./base64":1,"./zipEntries":22}],11:[function(_dereq_,module,exports){
+'use strict';
+var utils = _dereq_('./utils');
+var crc32 = _dereq_('./crc32');
+var defaults = _dereq_('./defaults');
+var CompressedObject = _dereq_('./compressedObject');
+var utf8 = _dereq_('./utf8');
+var ZipObject = _dereq_('./zipObject');
+var generate = _dereq_("./generate");
+
+/**
+ * Merge the objects passed as parameters into a new one.
+ * @private
+ * @param {...Object} var_args All objects to merge.
+ * @return {Object} a new object with the data of the others.
+ */
+var extend = function() {
+    var result = {}, i, attr;
+    for (i = 0; i < arguments.length; i++) { // arguments is not enumerable in some browsers
+        for (attr in arguments[i]) {
+            if (arguments[i].hasOwnProperty(attr) && typeof result[attr] === "undefined") {
+                result[attr] = arguments[i][attr];
+            }
+        }
+    }
+    return result;
+};
+
+/**
+ * Transforms the (incomplete) options from the user into the complete
+ * set of options to create a file.
+ * @private
+ * @param {Object} o the options from the user.
+ * @return {Object} the complete set of options.
+ */
+var prepareFileAttrs = function(o) {
+    o = o || {};
+    if (o.base64 === true && (o.binary === null || o.binary === undefined)) {
+        o.binary = true;
+    }
+    o = extend(o, defaults);
+    o.date = o.date || new Date();
+    if (o.compression !== null) o.compression = o.compression.toUpperCase();
+
+    return o;
+};
+
+/**
+ * Add a file in the current folder.
+ * @private
+ * @param {string} name the name of the file
+ * @param {String|ArrayBuffer|Uint8Array|Buffer} data the data of the file
+ * @param {Object} o the options of the file
+ * @return {Object} the new file.
+ */
+var fileAdd = function(name, data, o) {
+    // be sure sub folders exist
+    var dataType = utils.getTypeOf(data);
+
+    o = prepareFileAttrs(o);
+
+    // special case : it's way easier to work with Uint8Array than with ArrayBuffer
+    if (dataType === "arraybuffer") {
+        data = utils.transformTo("uint8array", data);
+    }
+
+    var isCompressedEmpty = (data instanceof CompressedObject) && data.uncompressedSize === 0;
+
+    if (isCompressedEmpty || o.dir || !data || data.length === 0) {
+        o.base64 = false;
+        o.binary = true;
+        data = null;
+        o.compression = "STORE";
+    }
+    else if (!dataType && !(data instanceof CompressedObject)) {
+        throw new Error("The data of '" + name + "' is in an unsupported format !");
+    }
+    else if (dataType === "string") {
+        if (o.binary && !o.base64) {
+            // optimizedBinaryString == true means that the file has already been filtered with a 0xFF mask
+            if (o.optimizedBinaryString !== true) {
+                // this is a string, not in a base64 format.
+                // Be sure that this is a correct "binary string"
+                data = utils.string2binary(data);
+            }
+        }
+    }
+    else { // arraybuffer, uint8array, ...
+        o.base64 = false;
+        o.binary = true;
+    }
+
+    var object = new ZipObject(name, data, o);
+    this.files[name] = object;
+    return object;
+};
+
+/**
+ * Add a (sub) folder in the current folder.
+ * @private
+ * @param {string} name the folder's name
+ * @return {Object} the new folder.
+ */
+var folderAdd = function(name) {
+    // Check the name ends with a /
+    if (name.charAt(name.length - 1) != "/") {
+        name += "/"; // IE doesn't like substr(-1)
+    }
+
+    // Does this folder already exist?
+    if (!this.files[name]) {
+        fileAdd.call(this, name, null, {
+            dir: true
+        });
+    }
+    return this.files[name];
+};
+
+
+// return the actual prototype of JSZip
+var out = {
+    /**
+     * Read an existing zip and merge the data in the current JSZip object.
+     * The implementation is in jszip-load.js, don't forget to include it.
+     * @param {String|ArrayBuffer|Uint8Array|Buffer} stream  The stream to load
+     * @param {Object} options Options for loading the stream.
+     *  options.base64 : is the stream in base64 ? default : false
+     * @return {JSZip} the current JSZip object
+     */
+    load: function(stream, options) {
+        throw new Error("Load method is not defined. Is the file jszip-load.js included ?");
+    },
+
+    /**
+     * Filter nested files/folders with the specified function.
+     * @param {Function} search the predicate to use :
+     * function (relativePath, file) {...}
+     * It takes 2 arguments : the relative path and the file.
+     * @return {Array} An array of matching elements.
+     */
+    filter: function(search) {
+        var result = [],
+            filename, relativePath, file, fileClone;
+        for (filename in this.files) {
+            if (!this.files.hasOwnProperty(filename)) {
+                continue;
+            }
+            file = this.files[filename];
+            // return a new object, don't let the user mess with our internal objects :)
+            fileClone = new ZipObject(file.name, file._data, extend(file.options));
+            relativePath = filename.slice(this.root.length, filename.length);
+            if (filename.slice(0, this.root.length) === this.root && // the file is in the current root
+            search(relativePath, fileClone)) { // and the file matches the function
+                result.push(fileClone);
+            }
+        }
+        return result;
+    },
+
+    /**
+     * Add a file to the zip file, or search a file.
+     * @param   {string|RegExp} name The name of the file to add (if data is defined),
+     * the name of the file to find (if no data) or a regex to match files.
+     * @param   {String|ArrayBuffer|Uint8Array|Buffer} data  The file data, either raw or base64 encoded
+     * @param   {Object} o     File options
+     * @return  {JSZip|Object|Array} this JSZip object (when adding a file),
+     * a file (when searching by string) or an array of files (when searching by regex).
+     */
+    file: function(name, data, o) {
+        if (arguments.length === 1) {
+            if (utils.isRegExp(name)) {
+                var regexp = name;
+                return this.filter(function(relativePath, file) {
+                    return !file.dir && regexp.test(relativePath);
+                });
+            }
+            else { // text
+                var obj = this.files[this.root + name];
+                if (obj && !obj.dir) {
+                    return new ZipObject(obj.name, obj._data, extend(obj.options));
+                } else {
+                    return null;
+                }
+            }
+        }
+        else { // more than one argument : we have data !
+            fileAdd.call(this, this.root + name, data, o);
+        }
+        return this;
+    },
+
+    /**
+     * Add a directory to the zip file, or search.
+     * @param   {String|RegExp} arg The name of the directory to add, or a regex to search folders.
+     * @return  {JSZip} an object with the new directory as the root, or an array containing matching folders.
+     */
+    folder: function(arg) {
+        if (!arg) {
+            return this;
+        }
+
+        if (utils.isRegExp(arg)) {
+            return this.filter(function(relativePath, file) {
+                return file.dir && arg.test(relativePath);
+            });
+        }
+
+        // else, name is a new folder
+        var name = this.root + arg;
+        var newFolder = folderAdd.call(this, name);
+
+        // Allow chaining by returning a new object with this folder as the root
+        var ret = this.clone();
+        ret.root = newFolder.name;
+        return ret;
+    },
+
+    /**
+     * Delete a file, or a directory and all sub-files, from the zip
+     * @param {string} name the name of the file to delete
+     * @return {JSZip} this JSZip object
+     */
+    remove: function(name) {
+        name = this.root + name;
+        var file = this.files[name];
+        if (!file) {
+            // Look for any folders
+            if (name.charAt(name.length - 1) != "/") {
+                name += "/";
+            }
+            file = this.files[name];
+        }
+
+        if (file && !file.dir) {
+            // file
+            delete this.files[name];
+        } else {
+            // maybe a folder, delete recursively
+            var kids = this.filter(function(relativePath, file) {
+                return file.name.slice(0, name.length) === name;
+            });
+            for (var i = 0, len = kids.length; i < len; i++) {
+                delete this.files[kids[i].name];
+            }
+        }
+
+        return this;
+    },
+
+    /**
+     * Generate the complete zip file
+     * @param {Object} options the options to generate the zip file :
+     * - base64, (deprecated, use type instead) true to generate base64.
+     * - compression, "STORE" by default.
+     * - type, "base64" by default. Values are : string, base64, uint8array, arraybuffer, blob.
+     * @return {String|Uint8Array|ArrayBuffer|Buffer|Blob} the zip file
+     */
+    generate: function(options) {
+        options = extend(options || {}, {
+            base64: true,
+            compression: "STORE",
+            type: "base64",
+            comment: null
+        });
+
+        // used the deprecated `base64:false` without changing `type:base64`
+        if(options.type.toLowerCase() === "base64" && !options.base64) {
+            options.type = "string";
+        }
+
+        utils.checkSupport(options.type);
+
+        var comment = options.comment || this.comment || "";
+        var entries = generate.prepareCompressedEntries(this.files, options.compression.toUpperCase());
+
+        return generate.generateZipFile(options.type.toLowerCase(), entries, comment);
+    },
+
+    /**
+     * @deprecated
+     * This method will be removed in a future version without replacement.
+     */
+    crc32: function (input, crc) {
+        return crc32(input, crc);
+    },
+
+    /**
+     * Generate the complete zip file
+     * @param {Object} options the options to generate the zip file :
+     * - base64, (deprecated, use type instead) true to generate base64.
+     * - compression, "STORE" by default.
+     * - type, "base64" by default. Values are : string, base64, uint8array, arraybuffer, blob.
+     * @param {Function} callback the function to call with the result.
+     *  The callback is called with :
+     *  - an error (if any)
+     *  - the generated zip file.
+     */
+    generateAsync: function(options, callback) {
+        options = extend(options || {}, {
+            base64: true,
+            compression: "STORE",
+            type: "base64"
+        });
+
+        // used the deprecated `base64:false` without changing `type:base64`
+        if(options.type.toLowerCase() === "base64" && !options.base64) {
+            options.type = "string";
+        }
+
+        var comment = options.comment || this.comment || "";
+
+        try {
+            utils.checkSupport(options.type);
+        } catch (err) {
+            utils.delay(callback, [err, null]);
+            return;
+        }
+
+        generate.prepareCompressedEntriesAsync(this.files, options.compression.toUpperCase(), function (err, entries) {
+            if(err) {
+                callback(err, null);
+                return;
+            }
+            utils.delay(callback, [null, generate.generateZipFile(options.type.toLowerCase(), entries, comment)]);
+        });
+    },
+
+
+    /**
+     * @deprecated
+     * This method will be removed in a future version without replacement.
+     */
+    utf8encode: function (string) {
+        var array = utf8.utf8encode(string);
+        return utils.transformTo("string", array);
+    },
+
+    /**
+     * @deprecated
+     * This method will be removed in a future version without replacement.
+     */
+    utf8decode: function (input) {
+        return utf8.utf8decode(input);
+    }
+};
+module.exports = out;
+
+},{"./compressedObject":2,"./crc32":4,"./defaults":5,"./generate":8,"./utf8":18,"./utils":19,"./zipObject":24}],12:[function(_dereq_,module,exports){
+'use strict';
+var utils = _dereq_('../utils');
 
 function DataReader(data) {
     this.data = null; // type : see implementation
@@ -219,6 +1460,14 @@ DataReader.prototype = {
         // see implementations
     },
     /**
+     * Read the signature (4 bytes) at the current position and compare it with sig.
+     * @param {string} sig the expected signature
+     * @return {boolean} true if the signature matches, false otherwise.
+     */
+    readAndCheckSignature: function(sig) {
+        // see implementations
+    },
+    /**
      * Get the next date.
      * @return {Date} the date.
      */
@@ -235,1065 +1484,39 @@ DataReader.prototype = {
 };
 module.exports = DataReader;
 
-},{"./utils":14}],5:[function(require,module,exports){
+},{"../utils":19}],13:[function(_dereq_,module,exports){
 'use strict';
-exports.base64 = false;
-exports.binary = false;
-exports.dir = false;
-exports.date = null;
-exports.compression = null;
 
-},{}],6:[function(require,module,exports){
+var utils = _dereq_('../utils');
+var support = _dereq_('../support');
+var StringReader = _dereq_('./stringReader');
+var NodeBufferReader = _dereq_('./nodeBufferReader');
+var Uint8ArrayReader = _dereq_('./uint8ArrayReader');
+
+/**
+ * Create a reader adapted to the data.
+ * @param {String|ArrayBuffer|Uint8Array|Buffer} data the data to read.
+ * @param {boolean} optimizedBinaryString true if the data is a binary string, false otherwise.
+ * @return {DataReader} the data reader.
+ */
+module.exports = function (data, optimizedBinaryString) {
+    var type = utils.getTypeOf(data);
+    if (type === "string" && !support.uint8array) {
+        return new StringReader(data, optimizedBinaryString);
+    }
+    if (type === "nodebuffer") {
+        return new NodeBufferReader(data);
+    }
+
+    return new Uint8ArrayReader(utils.transformTo("uint8array", data));
+};
+
+// vim: set shiftwidth=4 softtabstop=4:
+
+},{"../support":17,"../utils":19,"./nodeBufferReader":25,"./stringReader":14,"./uint8ArrayReader":15}],14:[function(_dereq_,module,exports){
 'use strict';
-var USE_TYPEDARRAY = (typeof Uint8Array !== 'undefined') && (typeof Uint16Array !== 'undefined') && (typeof Uint32Array !== 'undefined');
-
-var pako = require("pako");
-exports.uncompressInputType = USE_TYPEDARRAY ? "uint8array" : "array";
-exports.compressInputType = USE_TYPEDARRAY ? "uint8array" : "array";
-
-exports.magic = "\x08\x00";
-exports.compress = function(input) {
-    return pako.deflateRaw(input);
-};
-exports.uncompress =  function(input) {
-    return pako.inflateRaw(input);
-};
-
-},{"pako":19}],7:[function(require,module,exports){
-'use strict';
-/**
-Usage:
-   zip = new JSZip();
-   zip.file("hello.txt", "Hello, World!").file("tempfile", "nothing");
-   zip.folder("images").file("smile.gif", base64Data, {base64: true});
-   zip.file("Xmas.txt", "Ho ho ho !", {date : new Date("December 25, 2007 00:00:01")});
-   zip.remove("tempfile");
-
-   base64zip = zip.generate();
-
-**/
-
-/**
- * Representation a of zip file in js
- * @constructor
- * @param {String=|ArrayBuffer=|Uint8Array=} data the data to load, if any (optional).
- * @param {Object=} options the options for creating this objects (optional).
- */
-function JSZip(data, options) {
-    // if this constructor is used without `new`, it adds `new` before itself:
-    if(!(this instanceof JSZip)) return new JSZip(data, options);
-    
-    // object containing the files :
-    // {
-    //   "folder/" : {...},
-    //   "folder/data.txt" : {...}
-    // }
-    this.files = {};
-
-    // Where we are in the hierarchy
-    this.root = "";
-    if (data) {
-        this.load(data, options);
-    }
-    this.clone = function() {
-        var newObj = new JSZip();
-        for (var i in this) {
-            if (typeof this[i] !== "function") {
-                newObj[i] = this[i];
-            }
-        }
-        return newObj;
-    };
-}
-JSZip.prototype = require('./object');
-JSZip.prototype.load = require('./load');
-JSZip.support = require('./support');
-JSZip.defaults = require('./defaults');
-JSZip.utils = require('./utils');
-JSZip.base64 = require('./base64');
-JSZip.compressions = require('./compressions');
-module.exports = JSZip;
-
-},{"./base64":1,"./compressions":3,"./defaults":5,"./load":8,"./object":9,"./support":12,"./utils":14}],8:[function(require,module,exports){
-'use strict';
-var base64 = require('./base64');
-var ZipEntries = require('./zipEntries');
-module.exports = function(data, options) {
-    var files, zipEntries, i, input;
-    options = options || {};
-    if (options.base64) {
-        data = base64.decode(data);
-    }
-
-    zipEntries = new ZipEntries(data, options);
-    files = zipEntries.files;
-    for (i = 0; i < files.length; i++) {
-        input = files[i];
-        this.file(input.fileName, input.decompressed, {
-            binary: true,
-            optimizedBinaryString: true,
-            date: input.date,
-            dir: input.dir
-        });
-    }
-
-    return this;
-};
-
-},{"./base64":1,"./zipEntries":15}],9:[function(require,module,exports){
-'use strict';
-var support = require('./support');
-var utils = require('./utils');
-var signature = require('./signature');
-var defaults = require('./defaults');
-var base64 = require('./base64');
-var compressions = require('./compressions');
-var CompressedObject = require('./compressedObject');
-var nodeBuffer = require('./nodeBuffer');
-/**
- * Returns the raw data of a ZipObject, decompress the content if necessary.
- * @param {ZipObject} file the file to use.
- * @return {String|ArrayBuffer|Uint8Array|Buffer} the data.
- */
-
-var textEncoder, textDecoder;
-if (
-    support.uint8array &&
-    typeof TextEncoder === "function" &&
-    typeof TextDecoder === "function"
-) {
-    textEncoder = new TextEncoder("utf-8");
-    textDecoder = new TextDecoder("utf-8");
-}
-
-var getRawData = function(file) {
-    if (file._data instanceof CompressedObject) {
-        file._data = file._data.getContent();
-        file.options.binary = true;
-        file.options.base64 = false;
-
-        if (utils.getTypeOf(file._data) === "uint8array") {
-            var copy = file._data;
-            // when reading an arraybuffer, the CompressedObject mechanism will keep it and subarray() a Uint8Array.
-            // if we request a file in the same format, we might get the same Uint8Array or its ArrayBuffer (the original zip file).
-            file._data = new Uint8Array(copy.length);
-            // with an empty Uint8Array, Opera fails with a "Offset larger than array size"
-            if (copy.length !== 0) {
-                file._data.set(copy, 0);
-            }
-        }
-    }
-    return file._data;
-};
-
-/**
- * Returns the data of a ZipObject in a binary form. If the content is an unicode string, encode it.
- * @param {ZipObject} file the file to use.
- * @return {String|ArrayBuffer|Uint8Array|Buffer} the data.
- */
-var getBinaryData = function(file) {
-    var result = getRawData(file),
-        type = utils.getTypeOf(result);
-    if (type === "string") {
-        if (!file.options.binary) {
-            // unicode text !
-            // unicode string => binary string is a painful process, check if we can avoid it.
-            if (textEncoder) {
-                return textEncoder.encode(result);
-            }
-            if (support.nodebuffer) {
-                return nodeBuffer(result, "utf-8");
-            }
-        }
-        return file.asBinary();
-    }
-    return result;
-};
-
-/**
- * Transform this._data into a string.
- * @param {function} filter a function String -> String, applied if not null on the result.
- * @return {String} the string representing this._data.
- */
-var dataToString = function(asUTF8) {
-    var result = getRawData(this);
-    if (result === null || typeof result === "undefined") {
-        return "";
-    }
-    // if the data is a base64 string, we decode it before checking the encoding !
-    if (this.options.base64) {
-        result = base64.decode(result);
-    }
-    if (asUTF8 && this.options.binary) {
-        // JSZip.prototype.utf8decode supports arrays as input
-        // skip to array => string step, utf8decode will do it.
-        result = out.utf8decode(result);
-    }
-    else {
-        // no utf8 transformation, do the array => string step.
-        result = utils.transformTo("string", result);
-    }
-
-    if (!asUTF8 && !this.options.binary) {
-        result = out.utf8encode(result);
-    }
-    return result;
-};
-/**
- * A simple object representing a file in the zip file.
- * @constructor
- * @param {string} name the name of the file
- * @param {String|ArrayBuffer|Uint8Array|Buffer} data the data
- * @param {Object} options the options of the file
- */
-var ZipObject = function(name, data, options) {
-    this.name = name;
-    this._data = data;
-    this.options = options;
-};
-
-ZipObject.prototype = {
-    /**
-     * Return the content as UTF8 string.
-     * @return {string} the UTF8 string.
-     */
-    asText: function() {
-        return dataToString.call(this, true);
-    },
-    /**
-     * Returns the binary content.
-     * @return {string} the content as binary.
-     */
-    asBinary: function() {
-        return dataToString.call(this, false);
-    },
-    /**
-     * Returns the content as a nodejs Buffer.
-     * @return {Buffer} the content as a Buffer.
-     */
-    asNodeBuffer: function() {
-        var result = getBinaryData(this);
-        return utils.transformTo("nodebuffer", result);
-    },
-    /**
-     * Returns the content as an Uint8Array.
-     * @return {Uint8Array} the content as an Uint8Array.
-     */
-    asUint8Array: function() {
-        var result = getBinaryData(this);
-        return utils.transformTo("uint8array", result);
-    },
-    /**
-     * Returns the content as an ArrayBuffer.
-     * @return {ArrayBuffer} the content as an ArrayBufer.
-     */
-    asArrayBuffer: function() {
-        return this.asUint8Array().buffer;
-    }
-};
-
-/**
- * Transform an integer into a string in hexadecimal.
- * @private
- * @param {number} dec the number to convert.
- * @param {number} bytes the number of bytes to generate.
- * @returns {string} the result.
- */
-var decToHex = function(dec, bytes) {
-    var hex = "",
-        i;
-    for (i = 0; i < bytes; i++) {
-        hex += String.fromCharCode(dec & 0xff);
-        dec = dec >>> 8;
-    }
-    return hex;
-};
-
-/**
- * Merge the objects passed as parameters into a new one.
- * @private
- * @param {...Object} var_args All objects to merge.
- * @return {Object} a new object with the data of the others.
- */
-var extend = function() {
-    var result = {}, i, attr;
-    for (i = 0; i < arguments.length; i++) { // arguments is not enumerable in some browsers
-        for (attr in arguments[i]) {
-            if (arguments[i].hasOwnProperty(attr) && typeof result[attr] === "undefined") {
-                result[attr] = arguments[i][attr];
-            }
-        }
-    }
-    return result;
-};
-
-/**
- * Transforms the (incomplete) options from the user into the complete
- * set of options to create a file.
- * @private
- * @param {Object} o the options from the user.
- * @return {Object} the complete set of options.
- */
-var prepareFileAttrs = function(o) {
-    o = o || {};
-    if (o.base64 === true && (o.binary === null || o.binary === undefined)) {
-        o.binary = true;
-    }
-    o = extend(o, defaults);
-    o.date = o.date || new Date();
-    if (o.compression !== null) o.compression = o.compression.toUpperCase();
-
-    return o;
-};
-
-/**
- * Add a file in the current folder.
- * @private
- * @param {string} name the name of the file
- * @param {String|ArrayBuffer|Uint8Array|Buffer} data the data of the file
- * @param {Object} o the options of the file
- * @return {Object} the new file.
- */
-var fileAdd = function(name, data, o) {
-    // be sure sub folders exist
-    var parent = parentFolder(name),
-        dataType = utils.getTypeOf(data);
-    if (parent) {
-        folderAdd.call(this, parent);
-    }
-
-    o = prepareFileAttrs(o);
-
-    if (o.dir || data === null || typeof data === "undefined") {
-        o.base64 = false;
-        o.binary = false;
-        data = null;
-    }
-    else if (dataType === "string") {
-        if (o.binary && !o.base64) {
-            // optimizedBinaryString == true means that the file has already been filtered with a 0xFF mask
-            if (o.optimizedBinaryString !== true) {
-                // this is a string, not in a base64 format.
-                // Be sure that this is a correct "binary string"
-                data = utils.string2binary(data);
-            }
-        }
-    }
-    else { // arraybuffer, uint8array, ...
-        o.base64 = false;
-        o.binary = true;
-
-        if (!dataType && !(data instanceof CompressedObject)) {
-            throw new Error("The data of '" + name + "' is in an unsupported format !");
-        }
-
-        // special case : it's way easier to work with Uint8Array than with ArrayBuffer
-        if (dataType === "arraybuffer") {
-            data = utils.transformTo("uint8array", data);
-        }
-    }
-
-    var object = new ZipObject(name, data, o);
-    this.files[name] = object;
-    return object;
-};
-
-
-/**
- * Find the parent folder of the path.
- * @private
- * @param {string} path the path to use
- * @return {string} the parent folder, or ""
- */
-var parentFolder = function(path) {
-    if (path.slice(-1) == '/') {
-        path = path.substring(0, path.length - 1);
-    }
-    var lastSlash = path.lastIndexOf('/');
-    return (lastSlash > 0) ? path.substring(0, lastSlash) : "";
-};
-
-/**
- * Add a (sub) folder in the current folder.
- * @private
- * @param {string} name the folder's name
- * @return {Object} the new folder.
- */
-var folderAdd = function(name) {
-    // Check the name ends with a /
-    if (name.slice(-1) != "/") {
-        name += "/"; // IE doesn't like substr(-1)
-    }
-
-    // Does this folder already exist?
-    if (!this.files[name]) {
-        fileAdd.call(this, name, null, {
-            dir: true
-        });
-    }
-    return this.files[name];
-};
-
-/**
- * Generate a JSZip.CompressedObject for a given zipOject.
- * @param {ZipObject} file the object to read.
- * @param {JSZip.compression} compression the compression to use.
- * @return {JSZip.CompressedObject} the compressed result.
- */
-var generateCompressedObjectFrom = function(file, compression) {
-    var result = new CompressedObject(),
-        content;
-
-    // the data has not been decompressed, we might reuse things !
-    if (file._data instanceof CompressedObject) {
-        result.uncompressedSize = file._data.uncompressedSize;
-        result.crc32 = file._data.crc32;
-
-        if (result.uncompressedSize === 0 || file.options.dir) {
-            compression = compressions['STORE'];
-            result.compressedContent = "";
-            result.crc32 = 0;
-        }
-        else if (file._data.compressionMethod === compression.magic) {
-            result.compressedContent = file._data.getCompressedContent();
-        }
-        else {
-            content = file._data.getContent();
-            // need to decompress / recompress
-            result.compressedContent = compression.compress(utils.transformTo(compression.compressInputType, content));
-        }
-    }
-    else {
-        // have uncompressed data
-        content = getBinaryData(file);
-        if (!content || content.length === 0 || file.options.dir) {
-            compression = compressions['STORE'];
-            content = "";
-        }
-        result.uncompressedSize = content.length;
-        result.crc32 = this.crc32(content);
-        result.compressedContent = compression.compress(utils.transformTo(compression.compressInputType, content));
-    }
-
-    result.compressedSize = result.compressedContent.length;
-    result.compressionMethod = compression.magic;
-
-    return result;
-};
-
-/**
- * Generate the various parts used in the construction of the final zip file.
- * @param {string} name the file name.
- * @param {ZipObject} file the file content.
- * @param {JSZip.CompressedObject} compressedObject the compressed object.
- * @param {number} offset the current offset from the start of the zip file.
- * @return {object} the zip parts.
- */
-var generateZipParts = function(name, file, compressedObject, offset) {
-    var data = compressedObject.compressedContent,
-        utfEncodedFileName = this.utf8encode(file.name),
-        useUTF8 = utfEncodedFileName !== file.name,
-        o = file.options,
-        dosTime,
-        dosDate,
-        extraFields = "",
-        unicodePathExtraField = "";
-
-    // date
-    // @see http://www.delorie.com/djgpp/doc/rbinter/it/52/13.html
-    // @see http://www.delorie.com/djgpp/doc/rbinter/it/65/16.html
-    // @see http://www.delorie.com/djgpp/doc/rbinter/it/66/16.html
-
-    dosTime = o.date.getHours();
-    dosTime = dosTime << 6;
-    dosTime = dosTime | o.date.getMinutes();
-    dosTime = dosTime << 5;
-    dosTime = dosTime | o.date.getSeconds() / 2;
-
-    dosDate = o.date.getFullYear() - 1980;
-    dosDate = dosDate << 4;
-    dosDate = dosDate | (o.date.getMonth() + 1);
-    dosDate = dosDate << 5;
-    dosDate = dosDate | o.date.getDate();
-
-    if (useUTF8) {
-        // set the unicode path extra field. unzip needs at least one extra
-        // field to correctly handle unicode path, so using the path is as good
-        // as any other information. This could improve the situation with
-        // other archive managers too.
-        // This field is usually used without the utf8 flag, with a non
-        // unicode path in the header (winrar, winzip). This helps (a bit)
-        // with the messy Windows' default compressed folders feature but
-        // breaks on p7zip which doesn't seek the unicode path extra field.
-        // So for now, UTF-8 everywhere !
-        unicodePathExtraField =
-            // Version
-            decToHex(1, 1) +
-            // NameCRC32
-            decToHex(this.crc32(utfEncodedFileName), 4) +
-            // UnicodeName
-            utfEncodedFileName;
-
-        extraFields +=
-            // Info-ZIP Unicode Path Extra Field
-            "\x75\x70" +
-            // size
-            decToHex(unicodePathExtraField.length, 2) +
-            // content
-            unicodePathExtraField;
-    }
-
-    var header = "";
-
-    // version needed to extract
-    header += "\x0A\x00";
-    // general purpose bit flag
-    // set bit 11 if utf8
-    header += useUTF8 ? "\x00\x08" : "\x00\x00";
-    // compression method
-    header += compressedObject.compressionMethod;
-    // last mod file time
-    header += decToHex(dosTime, 2);
-    // last mod file date
-    header += decToHex(dosDate, 2);
-    // crc-32
-    header += decToHex(compressedObject.crc32, 4);
-    // compressed size
-    header += decToHex(compressedObject.compressedSize, 4);
-    // uncompressed size
-    header += decToHex(compressedObject.uncompressedSize, 4);
-    // file name length
-    header += decToHex(utfEncodedFileName.length, 2);
-    // extra field length
-    header += decToHex(extraFields.length, 2);
-
-
-    var fileRecord = signature.LOCAL_FILE_HEADER + header + utfEncodedFileName + extraFields;
-
-    var dirRecord = signature.CENTRAL_FILE_HEADER +
-    // version made by (00: DOS)
-    "\x14\x00" +
-    // file header (common to file and central directory)
-    header +
-    // file comment length
-    "\x00\x00" +
-    // disk number start
-    "\x00\x00" +
-    // internal file attributes TODO
-    "\x00\x00" +
-    // external file attributes
-    (file.options.dir === true ? "\x10\x00\x00\x00" : "\x00\x00\x00\x00") +
-    // relative offset of local header
-    decToHex(offset, 4) +
-    // file name
-    utfEncodedFileName +
-    // extra field
-    extraFields;
-
-
-    return {
-        fileRecord: fileRecord,
-        dirRecord: dirRecord,
-        compressedObject: compressedObject
-    };
-};
-
-/**
- * An object to write any content to a string.
- * @constructor
- */
-var StringWriter = function() {
-    this.data = [];
-};
-StringWriter.prototype = {
-    /**
-     * Append any content to the current string.
-     * @param {Object} input the content to add.
-     */
-    append: function(input) {
-        input = utils.transformTo("string", input);
-        this.data.push(input);
-    },
-    /**
-     * Finalize the construction an return the result.
-     * @return {string} the generated string.
-     */
-    finalize: function() {
-        return this.data.join("");
-    }
-};
-/**
- * An object to write any content to an Uint8Array.
- * @constructor
- * @param {number} length The length of the array.
- */
-var Uint8ArrayWriter = function(length) {
-    this.data = new Uint8Array(length);
-    this.index = 0;
-};
-Uint8ArrayWriter.prototype = {
-    /**
-     * Append any content to the current array.
-     * @param {Object} input the content to add.
-     */
-    append: function(input) {
-        if (input.length !== 0) {
-            // with an empty Uint8Array, Opera fails with a "Offset larger than array size"
-            input = utils.transformTo("uint8array", input);
-            this.data.set(input, this.index);
-            this.index += input.length;
-        }
-    },
-    /**
-     * Finalize the construction an return the result.
-     * @return {Uint8Array} the generated array.
-     */
-    finalize: function() {
-        return this.data;
-    }
-};
-
-// return the actual prototype of JSZip
-var out = {
-    /**
-     * Read an existing zip and merge the data in the current JSZip object.
-     * The implementation is in jszip-load.js, don't forget to include it.
-     * @param {String|ArrayBuffer|Uint8Array|Buffer} stream  The stream to load
-     * @param {Object} options Options for loading the stream.
-     *  options.base64 : is the stream in base64 ? default : false
-     * @return {JSZip} the current JSZip object
-     */
-    load: function(stream, options) {
-        throw new Error("Load method is not defined. Is the file jszip-load.js included ?");
-    },
-
-    /**
-     * Filter nested files/folders with the specified function.
-     * @param {Function} search the predicate to use :
-     * function (relativePath, file) {...}
-     * It takes 2 arguments : the relative path and the file.
-     * @return {Array} An array of matching elements.
-     */
-    filter: function(search) {
-        var result = [],
-            filename, relativePath, file, fileClone;
-        for (filename in this.files) {
-            if (!this.files.hasOwnProperty(filename)) {
-                continue;
-            }
-            file = this.files[filename];
-            // return a new object, don't let the user mess with our internal objects :)
-            fileClone = new ZipObject(file.name, file._data, extend(file.options));
-            relativePath = filename.slice(this.root.length, filename.length);
-            if (filename.slice(0, this.root.length) === this.root && // the file is in the current root
-            search(relativePath, fileClone)) { // and the file matches the function
-                result.push(fileClone);
-            }
-        }
-        return result;
-    },
-
-    /**
-     * Add a file to the zip file, or search a file.
-     * @param   {string|RegExp} name The name of the file to add (if data is defined),
-     * the name of the file to find (if no data) or a regex to match files.
-     * @param   {String|ArrayBuffer|Uint8Array|Buffer} data  The file data, either raw or base64 encoded
-     * @param   {Object} o     File options
-     * @return  {JSZip|Object|Array} this JSZip object (when adding a file),
-     * a file (when searching by string) or an array of files (when searching by regex).
-     */
-    file: function(name, data, o) {
-        if (arguments.length === 1) {
-            if (utils.isRegExp(name)) {
-                var regexp = name;
-                return this.filter(function(relativePath, file) {
-                    return !file.options.dir && regexp.test(relativePath);
-                });
-            }
-            else { // text
-                return this.filter(function(relativePath, file) {
-                    return !file.options.dir && relativePath === name;
-                })[0] || null;
-            }
-        }
-        else { // more than one argument : we have data !
-            name = this.root + name;
-            fileAdd.call(this, name, data, o);
-        }
-        return this;
-    },
-
-    /**
-     * Add a directory to the zip file, or search.
-     * @param   {String|RegExp} arg The name of the directory to add, or a regex to search folders.
-     * @return  {JSZip} an object with the new directory as the root, or an array containing matching folders.
-     */
-    folder: function(arg) {
-        if (!arg) {
-            return this;
-        }
-
-        if (utils.isRegExp(arg)) {
-            return this.filter(function(relativePath, file) {
-                return file.options.dir && arg.test(relativePath);
-            });
-        }
-
-        // else, name is a new folder
-        var name = this.root + arg;
-        var newFolder = folderAdd.call(this, name);
-
-        // Allow chaining by returning a new object with this folder as the root
-        var ret = this.clone();
-        ret.root = newFolder.name;
-        return ret;
-    },
-
-    /**
-     * Delete a file, or a directory and all sub-files, from the zip
-     * @param {string} name the name of the file to delete
-     * @return {JSZip} this JSZip object
-     */
-    remove: function(name) {
-        name = this.root + name;
-        var file = this.files[name];
-        if (!file) {
-            // Look for any folders
-            if (name.slice(-1) != "/") {
-                name += "/";
-            }
-            file = this.files[name];
-        }
-
-        if (file) {
-            if (!file.options.dir) {
-                // file
-                delete this.files[name];
-            }
-            else {
-                // folder
-                var kids = this.filter(function(relativePath, file) {
-                    return file.name.slice(0, name.length) === name;
-                });
-                for (var i = 0; i < kids.length; i++) {
-                    delete this.files[kids[i].name];
-                }
-            }
-        }
-
-        return this;
-    },
-
-    /**
-     * Generate the complete zip file
-     * @param {Object} options the options to generate the zip file :
-     * - base64, (deprecated, use type instead) true to generate base64.
-     * - compression, "STORE" by default.
-     * - type, "base64" by default. Values are : string, base64, uint8array, arraybuffer, blob.
-     * @return {String|Uint8Array|ArrayBuffer|Buffer|Blob} the zip file
-     */
-    generate: function(options) {
-        options = extend(options || {}, {
-            base64: true,
-            compression: "STORE",
-            type: "base64"
-        });
-
-        utils.checkSupport(options.type);
-
-        var zipData = [],
-            localDirLength = 0,
-            centralDirLength = 0,
-            writer, i;
-
-
-        // first, generate all the zip parts.
-        for (var name in this.files) {
-            if (!this.files.hasOwnProperty(name)) {
-                continue;
-            }
-            var file = this.files[name];
-
-            var compressionName = file.options.compression || options.compression.toUpperCase();
-            var compression = compressions[compressionName];
-            if (!compression) {
-                throw new Error(compressionName + " is not a valid compression method !");
-            }
-
-            var compressedObject = generateCompressedObjectFrom.call(this, file, compression);
-
-            var zipPart = generateZipParts.call(this, name, file, compressedObject, localDirLength);
-            localDirLength += zipPart.fileRecord.length + compressedObject.compressedSize;
-            centralDirLength += zipPart.dirRecord.length;
-            zipData.push(zipPart);
-        }
-
-        var dirEnd = "";
-
-        // end of central dir signature
-        dirEnd = signature.CENTRAL_DIRECTORY_END +
-        // number of this disk
-        "\x00\x00" +
-        // number of the disk with the start of the central directory
-        "\x00\x00" +
-        // total number of entries in the central directory on this disk
-        decToHex(zipData.length, 2) +
-        // total number of entries in the central directory
-        decToHex(zipData.length, 2) +
-        // size of the central directory   4 bytes
-        decToHex(centralDirLength, 4) +
-        // offset of start of central directory with respect to the starting disk number
-        decToHex(localDirLength, 4) +
-        // .ZIP file comment length
-        "\x00\x00";
-
-
-        // we have all the parts (and the total length)
-        // time to create a writer !
-        var typeName = options.type.toLowerCase();
-        if(typeName==="uint8array"||typeName==="arraybuffer"||typeName==="blob"||typeName==="nodebuffer") {
-            writer = new Uint8ArrayWriter(localDirLength + centralDirLength + dirEnd.length);
-        }else{
-            writer = new StringWriter(localDirLength + centralDirLength + dirEnd.length);
-        }
-
-        for (i = 0; i < zipData.length; i++) {
-            writer.append(zipData[i].fileRecord);
-            writer.append(zipData[i].compressedObject.compressedContent);
-        }
-        for (i = 0; i < zipData.length; i++) {
-            writer.append(zipData[i].dirRecord);
-        }
-
-        writer.append(dirEnd);
-
-        var zip = writer.finalize();
-
-
-
-        switch(options.type.toLowerCase()) {
-            // case "zip is an Uint8Array"
-            case "uint8array" :
-            case "arraybuffer" :
-            case "nodebuffer" :
-               return utils.transformTo(options.type.toLowerCase(), zip);
-            case "blob" :
-               return utils.arrayBuffer2Blob(utils.transformTo("arraybuffer", zip));
-            // case "zip is a string"
-            case "base64" :
-               return (options.base64) ? base64.encode(zip) : zip;
-            default : // case "string" :
-               return zip;
-         }
-      
-    },
-
-    /**
-     *
-     *  Javascript crc32
-     *  http://www.webtoolkit.info/
-     *
-     */
-    crc32: function crc32(input, crc) {
-        if (typeof input === "undefined" || !input.length) {
-            return 0;
-        }
-
-        var isArray = utils.getTypeOf(input) !== "string";
-
-        var table = [
-        0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA,
-        0x076DC419, 0x706AF48F, 0xE963A535, 0x9E6495A3,
-        0x0EDB8832, 0x79DCB8A4, 0xE0D5E91E, 0x97D2D988,
-        0x09B64C2B, 0x7EB17CBD, 0xE7B82D07, 0x90BF1D91,
-        0x1DB71064, 0x6AB020F2, 0xF3B97148, 0x84BE41DE,
-        0x1ADAD47D, 0x6DDDE4EB, 0xF4D4B551, 0x83D385C7,
-        0x136C9856, 0x646BA8C0, 0xFD62F97A, 0x8A65C9EC,
-        0x14015C4F, 0x63066CD9, 0xFA0F3D63, 0x8D080DF5,
-        0x3B6E20C8, 0x4C69105E, 0xD56041E4, 0xA2677172,
-        0x3C03E4D1, 0x4B04D447, 0xD20D85FD, 0xA50AB56B,
-        0x35B5A8FA, 0x42B2986C, 0xDBBBC9D6, 0xACBCF940,
-        0x32D86CE3, 0x45DF5C75, 0xDCD60DCF, 0xABD13D59,
-        0x26D930AC, 0x51DE003A, 0xC8D75180, 0xBFD06116,
-        0x21B4F4B5, 0x56B3C423, 0xCFBA9599, 0xB8BDA50F,
-        0x2802B89E, 0x5F058808, 0xC60CD9B2, 0xB10BE924,
-        0x2F6F7C87, 0x58684C11, 0xC1611DAB, 0xB6662D3D,
-        0x76DC4190, 0x01DB7106, 0x98D220BC, 0xEFD5102A,
-        0x71B18589, 0x06B6B51F, 0x9FBFE4A5, 0xE8B8D433,
-        0x7807C9A2, 0x0F00F934, 0x9609A88E, 0xE10E9818,
-        0x7F6A0DBB, 0x086D3D2D, 0x91646C97, 0xE6635C01,
-        0x6B6B51F4, 0x1C6C6162, 0x856530D8, 0xF262004E,
-        0x6C0695ED, 0x1B01A57B, 0x8208F4C1, 0xF50FC457,
-        0x65B0D9C6, 0x12B7E950, 0x8BBEB8EA, 0xFCB9887C,
-        0x62DD1DDF, 0x15DA2D49, 0x8CD37CF3, 0xFBD44C65,
-        0x4DB26158, 0x3AB551CE, 0xA3BC0074, 0xD4BB30E2,
-        0x4ADFA541, 0x3DD895D7, 0xA4D1C46D, 0xD3D6F4FB,
-        0x4369E96A, 0x346ED9FC, 0xAD678846, 0xDA60B8D0,
-        0x44042D73, 0x33031DE5, 0xAA0A4C5F, 0xDD0D7CC9,
-        0x5005713C, 0x270241AA, 0xBE0B1010, 0xC90C2086,
-        0x5768B525, 0x206F85B3, 0xB966D409, 0xCE61E49F,
-        0x5EDEF90E, 0x29D9C998, 0xB0D09822, 0xC7D7A8B4,
-        0x59B33D17, 0x2EB40D81, 0xB7BD5C3B, 0xC0BA6CAD,
-        0xEDB88320, 0x9ABFB3B6, 0x03B6E20C, 0x74B1D29A,
-        0xEAD54739, 0x9DD277AF, 0x04DB2615, 0x73DC1683,
-        0xE3630B12, 0x94643B84, 0x0D6D6A3E, 0x7A6A5AA8,
-        0xE40ECF0B, 0x9309FF9D, 0x0A00AE27, 0x7D079EB1,
-        0xF00F9344, 0x8708A3D2, 0x1E01F268, 0x6906C2FE,
-        0xF762575D, 0x806567CB, 0x196C3671, 0x6E6B06E7,
-        0xFED41B76, 0x89D32BE0, 0x10DA7A5A, 0x67DD4ACC,
-        0xF9B9DF6F, 0x8EBEEFF9, 0x17B7BE43, 0x60B08ED5,
-        0xD6D6A3E8, 0xA1D1937E, 0x38D8C2C4, 0x4FDFF252,
-        0xD1BB67F1, 0xA6BC5767, 0x3FB506DD, 0x48B2364B,
-        0xD80D2BDA, 0xAF0A1B4C, 0x36034AF6, 0x41047A60,
-        0xDF60EFC3, 0xA867DF55, 0x316E8EEF, 0x4669BE79,
-        0xCB61B38C, 0xBC66831A, 0x256FD2A0, 0x5268E236,
-        0xCC0C7795, 0xBB0B4703, 0x220216B9, 0x5505262F,
-        0xC5BA3BBE, 0xB2BD0B28, 0x2BB45A92, 0x5CB36A04,
-        0xC2D7FFA7, 0xB5D0CF31, 0x2CD99E8B, 0x5BDEAE1D,
-        0x9B64C2B0, 0xEC63F226, 0x756AA39C, 0x026D930A,
-        0x9C0906A9, 0xEB0E363F, 0x72076785, 0x05005713,
-        0x95BF4A82, 0xE2B87A14, 0x7BB12BAE, 0x0CB61B38,
-        0x92D28E9B, 0xE5D5BE0D, 0x7CDCEFB7, 0x0BDBDF21,
-        0x86D3D2D4, 0xF1D4E242, 0x68DDB3F8, 0x1FDA836E,
-        0x81BE16CD, 0xF6B9265B, 0x6FB077E1, 0x18B74777,
-        0x88085AE6, 0xFF0F6A70, 0x66063BCA, 0x11010B5C,
-        0x8F659EFF, 0xF862AE69, 0x616BFFD3, 0x166CCF45,
-        0xA00AE278, 0xD70DD2EE, 0x4E048354, 0x3903B3C2,
-        0xA7672661, 0xD06016F7, 0x4969474D, 0x3E6E77DB,
-        0xAED16A4A, 0xD9D65ADC, 0x40DF0B66, 0x37D83BF0,
-        0xA9BCAE53, 0xDEBB9EC5, 0x47B2CF7F, 0x30B5FFE9,
-        0xBDBDF21C, 0xCABAC28A, 0x53B39330, 0x24B4A3A6,
-        0xBAD03605, 0xCDD70693, 0x54DE5729, 0x23D967BF,
-        0xB3667A2E, 0xC4614AB8, 0x5D681B02, 0x2A6F2B94,
-        0xB40BBE37, 0xC30C8EA1, 0x5A05DF1B, 0x2D02EF8D];
-
-        if (typeof(crc) == "undefined") {
-            crc = 0;
-        }
-        var x = 0;
-        var y = 0;
-        var b = 0;
-
-        crc = crc ^ (-1);
-        for (var i = 0, iTop = input.length; i < iTop; i++) {
-            b = isArray ? input[i] : input.charCodeAt(i);
-            y = (crc ^ b) & 0xFF;
-            x = table[y];
-            crc = (crc >>> 8) ^ x;
-        }
-
-        return crc ^ (-1);
-    },
-
-    // Inspired by http://my.opera.com/GreyWyvern/blog/show.dml/1725165
-
-    /**
-     * http://www.webtoolkit.info/javascript-utf8.html
-     */
-    utf8encode: function(string) {
-        // TextEncoder + Uint8Array to binary string is faster than checking every bytes on long strings.
-        // http://jsperf.com/utf8encode-vs-textencoder
-        // On short strings (file names for example), the TextEncoder API is (currently) slower.
-        if (textEncoder) {
-            var u8 = textEncoder.encode(string);
-            return utils.transformTo("string", u8);
-        }
-        if (support.nodebuffer) {
-            return utils.transformTo("string", nodeBuffer(string, "utf-8"));
-        }
-
-        // array.join may be slower than string concatenation but generates less objects (less time spent garbage collecting).
-        // See also http://jsperf.com/array-direct-assignment-vs-push/31
-        var result = [],
-            resIndex = 0;
-
-        for (var n = 0; n < string.length; n++) {
-
-            var c = string.charCodeAt(n);
-
-            if (c < 128) {
-                result[resIndex++] = String.fromCharCode(c);
-            }
-            else if ((c > 127) && (c < 2048)) {
-                result[resIndex++] = String.fromCharCode((c >> 6) | 192);
-                result[resIndex++] = String.fromCharCode((c & 63) | 128);
-            }
-            else {
-                result[resIndex++] = String.fromCharCode((c >> 12) | 224);
-                result[resIndex++] = String.fromCharCode(((c >> 6) & 63) | 128);
-                result[resIndex++] = String.fromCharCode((c & 63) | 128);
-            }
-
-        }
-
-        return result.join("");
-    },
-
-    /**
-     * http://www.webtoolkit.info/javascript-utf8.html
-     */
-    utf8decode: function(input) {
-        var result = [],
-            resIndex = 0;
-        var type = utils.getTypeOf(input);
-        var isArray = type !== "string";
-        var i = 0;
-        var c = 0,
-            c1 = 0,
-            c2 = 0,
-            c3 = 0;
-
-        // check if we can use the TextDecoder API
-        // see http://encoding.spec.whatwg.org/#api
-        if (textDecoder) {
-            return textDecoder.decode(
-                utils.transformTo("uint8array", input)
-            );
-        }
-        if (support.nodebuffer) {
-            return utils.transformTo("nodebuffer", input).toString("utf-8");
-        }
-
-        while (i < input.length) {
-
-            c = isArray ? input[i] : input.charCodeAt(i);
-
-            if (c < 128) {
-                result[resIndex++] = String.fromCharCode(c);
-                i++;
-            }
-            else if ((c > 191) && (c < 224)) {
-                c2 = isArray ? input[i + 1] : input.charCodeAt(i + 1);
-                result[resIndex++] = String.fromCharCode(((c & 31) << 6) | (c2 & 63));
-                i += 2;
-            }
-            else {
-                c2 = isArray ? input[i + 1] : input.charCodeAt(i + 1);
-                c3 = isArray ? input[i + 2] : input.charCodeAt(i + 2);
-                result[resIndex++] = String.fromCharCode(((c & 15) << 12) | ((c2 & 63) << 6) | (c3 & 63));
-                i += 3;
-            }
-
-        }
-
-        return result.join("");
-    }
-};
-module.exports = out;
-
-},{"./base64":1,"./compressedObject":2,"./compressions":3,"./defaults":5,"./nodeBuffer":17,"./signature":10,"./support":12,"./utils":14}],10:[function(require,module,exports){
-'use strict';
-exports.LOCAL_FILE_HEADER = "PK\x03\x04";
-exports.CENTRAL_FILE_HEADER = "PK\x01\x02";
-exports.CENTRAL_DIRECTORY_END = "PK\x05\x06";
-exports.ZIP64_CENTRAL_DIRECTORY_LOCATOR = "PK\x06\x07";
-exports.ZIP64_CENTRAL_DIRECTORY_END = "PK\x06\x06";
-exports.DATA_DESCRIPTOR = "PK\x07\x08";
-
-},{}],11:[function(require,module,exports){
-'use strict';
-var DataReader = require('./dataReader');
-var utils = require('./utils');
+var DataReader = _dereq_('./dataReader');
+var utils = _dereq_('../utils');
 
 function StringReader(data, optimizedBinaryString) {
     this.data = data;
@@ -1317,6 +1540,13 @@ StringReader.prototype.lastIndexOfSignature = function(sig) {
     return this.data.lastIndexOf(sig);
 };
 /**
+ * @see DataReader.readAndCheckSignature
+ */
+StringReader.prototype.readAndCheckSignature = function (sig) {
+    var data = this.readData(4);
+    return sig === data;
+};
+/**
  * @see DataReader.readData
  */
 StringReader.prototype.readData = function(size) {
@@ -1328,43 +1558,9 @@ StringReader.prototype.readData = function(size) {
 };
 module.exports = StringReader;
 
-},{"./dataReader":4,"./utils":14}],12:[function(require,module,exports){
-var process=require("__browserify_process");'use strict';
-exports.base64 = true;
-exports.array = true;
-exports.string = true;
-exports.arraybuffer = typeof ArrayBuffer !== "undefined" && typeof Uint8Array !== "undefined";
-// contains true if JSZip can read/generate nodejs Buffer, false otherwise, aka checks if we arn't in a browser.
-exports.nodebuffer = !process.browser;
-// contains true if JSZip can read/generate Uint8Array, false otherwise.
-exports.uint8array = typeof Uint8Array !== "undefined";
-
-if (typeof ArrayBuffer === "undefined") {
-    exports.blob = false;
-}
-else {
-    var buffer = new ArrayBuffer(0);
-    try {
-        exports.blob = new Blob([buffer], {
-            type: "application/zip"
-        }).size === 0;
-    }
-    catch (e) {
-        try {
-            var Builder = window.BlobBuilder || window.WebKitBlobBuilder || window.MozBlobBuilder || window.MSBlobBuilder;
-            var builder = new Builder();
-            builder.append(buffer);
-            exports.blob = builder.getBlob('application/zip').size === 0;
-        }
-        catch (e) {
-            exports.blob = false;
-        }
-    }
-}
-
-},{"__browserify_process":18}],13:[function(require,module,exports){
+},{"../utils":19,"./dataReader":12}],15:[function(_dereq_,module,exports){
 'use strict';
-var DataReader = require('./dataReader');
+var DataReader = _dereq_('./dataReader');
 
 function Uint8ArrayReader(data) {
     if (data) {
@@ -1397,21 +1593,372 @@ Uint8ArrayReader.prototype.lastIndexOfSignature = function(sig) {
     return -1;
 };
 /**
+ * @see DataReader.readAndCheckSignature
+ */
+Uint8ArrayReader.prototype.readAndCheckSignature = function (sig) {
+    var sig0 = sig.charCodeAt(0),
+        sig1 = sig.charCodeAt(1),
+        sig2 = sig.charCodeAt(2),
+        sig3 = sig.charCodeAt(3),
+        data = this.readData(4);
+    return sig0 === data[0] && sig1 === data[1] && sig2 === data[2] && sig3 === data[3];
+};
+/**
  * @see DataReader.readData
  */
 Uint8ArrayReader.prototype.readData = function(size) {
     this.checkOffset(size);
+    if(size === 0) {
+        // in IE10, when using subarray(idx, idx), we get the array [0x00] instead of [].
+        return new Uint8Array(0);
+    }
     var result = this.data.subarray(this.index, this.index + size);
     this.index += size;
     return result;
 };
 module.exports = Uint8ArrayReader;
 
-},{"./dataReader":4}],14:[function(require,module,exports){
+},{"./dataReader":12}],16:[function(_dereq_,module,exports){
 'use strict';
-var support = require('./support');
-var compressions = require('./compressions');
-var nodeBuffer = require('./nodeBuffer');
+exports.LOCAL_FILE_HEADER = "PK\x03\x04";
+exports.CENTRAL_FILE_HEADER = "PK\x01\x02";
+exports.CENTRAL_DIRECTORY_END = "PK\x05\x06";
+exports.ZIP64_CENTRAL_DIRECTORY_LOCATOR = "PK\x06\x07";
+exports.ZIP64_CENTRAL_DIRECTORY_END = "PK\x06\x06";
+exports.DATA_DESCRIPTOR = "PK\x07\x08";
+
+},{}],17:[function(_dereq_,module,exports){
+'use strict';
+
+var nodejsUtils = _dereq_("./nodejsUtils");
+
+exports.base64 = true;
+exports.array = true;
+exports.string = true;
+exports.arraybuffer = typeof ArrayBuffer !== "undefined" && typeof Uint8Array !== "undefined";
+// contains true if JSZip can read/generate nodejs Buffer, false otherwise, aka checks if we arn't in a browser.
+exports.nodebuffer = !!nodejsUtils.isNode;
+// contains true if JSZip can read/generate Uint8Array, false otherwise.
+exports.uint8array = typeof Uint8Array !== "undefined";
+
+if (typeof ArrayBuffer === "undefined") {
+    exports.blob = false;
+}
+else {
+    var buffer = new ArrayBuffer(0);
+    try {
+        exports.blob = new Blob([buffer], {
+            type: "application/zip"
+        }).size === 0;
+    }
+    catch (e) {
+        try {
+            var Builder = window.BlobBuilder || window.WebKitBlobBuilder || window.MozBlobBuilder || window.MSBlobBuilder;
+            var builder = new Builder();
+            builder.append(buffer);
+            exports.blob = builder.getBlob('application/zip').size === 0;
+        }
+        catch (e) {
+            exports.blob = false;
+        }
+    }
+}
+
+},{"./nodejsUtils":25}],18:[function(_dereq_,module,exports){
+'use strict';
+
+var utils = _dereq_('./utils');
+var support = _dereq_('./support');
+var nodejsUtils = _dereq_('./nodejsUtils');
+
+var textEncoder, textDecoder;
+if (
+    support.uint8array &&
+    typeof TextEncoder === "function" &&
+    typeof TextDecoder === "function"
+) {
+    textEncoder = new TextEncoder("utf-8");
+    textDecoder = new TextDecoder("utf-8");
+}
+
+/**
+ * The following functions come from pako, from pako/lib/utils/strings
+ * released under the MIT license, see pako https://github.com/nodeca/pako/
+ */
+
+// Table with utf8 lengths (calculated by first byte of sequence)
+// Note, that 5 & 6-byte values and some 4-byte values can not be represented in JS,
+// because max possible codepoint is 0x10ffff
+var _utf8len = new Array(256);
+for (var i=0; i<256; i++) {
+  _utf8len[i] = (i >= 252 ? 6 : i >= 248 ? 5 : i >= 240 ? 4 : i >= 224 ? 3 : i >= 192 ? 2 : 1);
+}
+_utf8len[254]=_utf8len[254]=1; // Invalid sequence start
+
+// convert string to array (typed, when possible)
+var string2buf = function (str) {
+    var buf, c, c2, m_pos, i, str_len = str.length, buf_len = 0;
+
+    // count binary size
+    for (m_pos = 0; m_pos < str_len; m_pos++) {
+        c = str.charCodeAt(m_pos);
+        if ((c & 0xfc00) === 0xd800 && (m_pos+1 < str_len)) {
+            c2 = str.charCodeAt(m_pos+1);
+            if ((c2 & 0xfc00) === 0xdc00) {
+                c = 0x10000 + ((c - 0xd800) << 10) + (c2 - 0xdc00);
+                m_pos++;
+            }
+        }
+        buf_len += c < 0x80 ? 1 : c < 0x800 ? 2 : c < 0x10000 ? 3 : 4;
+    }
+
+    // allocate buffer
+    if (support.uint8array) {
+        buf = new Uint8Array(buf_len);
+    } else {
+        buf = new Array(buf_len);
+    }
+
+    // convert
+    for (i=0, m_pos = 0; i < buf_len; m_pos++) {
+        c = str.charCodeAt(m_pos);
+        if ((c & 0xfc00) === 0xd800 && (m_pos+1 < str_len)) {
+            c2 = str.charCodeAt(m_pos+1);
+            if ((c2 & 0xfc00) === 0xdc00) {
+                c = 0x10000 + ((c - 0xd800) << 10) + (c2 - 0xdc00);
+                m_pos++;
+            }
+        }
+        if (c < 0x80) {
+            /* one byte */
+            buf[i++] = c;
+        } else if (c < 0x800) {
+            /* two bytes */
+            buf[i++] = 0xC0 | (c >>> 6);
+            buf[i++] = 0x80 | (c & 0x3f);
+        } else if (c < 0x10000) {
+            /* three bytes */
+            buf[i++] = 0xE0 | (c >>> 12);
+            buf[i++] = 0x80 | (c >>> 6 & 0x3f);
+            buf[i++] = 0x80 | (c & 0x3f);
+        } else {
+            /* four bytes */
+            buf[i++] = 0xf0 | (c >>> 18);
+            buf[i++] = 0x80 | (c >>> 12 & 0x3f);
+            buf[i++] = 0x80 | (c >>> 6 & 0x3f);
+            buf[i++] = 0x80 | (c & 0x3f);
+        }
+    }
+
+    return buf;
+};
+
+// Calculate max possible position in utf8 buffer,
+// that will not break sequence. If that's not possible
+// - (very small limits) return max size as is.
+//
+// buf[] - utf8 bytes array
+// max   - length limit (mandatory);
+var utf8border = function(buf, max) {
+    var pos;
+
+    max = max || buf.length;
+    if (max > buf.length) { max = buf.length; }
+
+    // go back from last position, until start of sequence found
+    pos = max-1;
+    while (pos >= 0 && (buf[pos] & 0xC0) === 0x80) { pos--; }
+
+    // Fuckup - very small and broken sequence,
+    // return max, because we should return something anyway.
+    if (pos < 0) { return max; }
+
+    // If we came to start of buffer - that means vuffer is too small,
+    // return max too.
+    if (pos === 0) { return max; }
+
+    return (pos + _utf8len[buf[pos]] > max) ? pos : max;
+};
+
+// convert array to string
+var buf2string = function (buf) {
+    var str, i, out, c, c_len;
+    var len = buf.length;
+
+    // Reserve max possible length (2 words per char)
+    // NB: by unknown reasons, Array is significantly faster for
+    //     String.fromCharCode.apply than Uint16Array.
+    var utf16buf = new Array(len*2);
+
+    for (out=0, i=0; i<len;) {
+        c = buf[i++];
+        // quick process ascii
+        if (c < 0x80) { utf16buf[out++] = c; continue; }
+
+        c_len = _utf8len[c];
+        // skip 5 & 6 byte codes
+        if (c_len > 4) { utf16buf[out++] = 0xfffd; i += c_len-1; continue; }
+
+        // apply mask on first byte
+        c &= c_len === 2 ? 0x1f : c_len === 3 ? 0x0f : 0x07;
+        // join the rest
+        while (c_len > 1 && i < len) {
+            c = (c << 6) | (buf[i++] & 0x3f);
+            c_len--;
+        }
+
+        // terminated by end of string?
+        if (c_len > 1) { utf16buf[out++] = 0xfffd; continue; }
+
+        if (c < 0x10000) {
+            utf16buf[out++] = c;
+        } else {
+            c -= 0x10000;
+            utf16buf[out++] = 0xd800 | ((c >> 10) & 0x3ff);
+            utf16buf[out++] = 0xdc00 | (c & 0x3ff);
+        }
+    }
+
+    // shrinkBuf(utf16buf, out)
+    if (utf16buf.length !== out) {
+        if(utf16buf.subarray) {
+            utf16buf = utf16buf.subarray(0, out);
+        } else {
+            utf16buf.length = out;
+        }
+    }
+
+    // return String.fromCharCode.apply(null, utf16buf);
+    return utils.applyFromCharCode(utf16buf);
+};
+
+
+// That's all for the pako functions.
+
+
+/**
+ * Transform a javascript string into an array (typed if possible) of bytes,
+ * UTF-8 encoded.
+ * @param {String} str the string to encode
+ * @return {Array|Uint8Array|Buffer} the UTF-8 encoded string.
+ */
+exports.utf8encode = function utf8encode(str) {
+    // TextEncoder + Uint8Array to binary string is faster than checking every bytes on long strings.
+    // http://jsperf.com/utf8encode-vs-textencoder
+    // On short strings (file names for example), the TextEncoder API is (currently) slower.
+    if (textEncoder) {
+        return textEncoder.encode(str);
+    }
+    if (support.nodebuffer) {
+        return nodejsUtils.newBuffer(str, "utf-8");
+    }
+
+    return string2buf(str);
+};
+
+/**
+ * Transform a javascript string into an array (typed if possible) of bytes,
+ * UTF-8 encoded.
+ * @param {String} str the string to encode
+ * @param {Function} callback the function to call with the result.
+ *  The callback is called with :
+ *  - an error (if any)
+ *  - the bytes.
+ */
+exports.utf8encodeAsync = function utf8encodeAsync(str, callback) {
+
+    if (support.blob && typeof FileReader === "function") {
+        var blob = utils.newBlob(
+            str,
+            "text/plain;charset=utf-8"
+        );
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            var result = utils.transformTo("uint8array", e.target.result);
+            callback(null, result);
+        };
+        reader.readAsArrayBuffer(blob);
+        return;
+    }
+
+    // TODO
+    callback(null, this.utf8encode(str));
+};
+
+
+/**
+ * Transform a bytes array (or a representation) representing an UTF-8 encoded
+ * string into a javascript string.
+ * @param {Array|Uint8Array|Buffer} buf the data de decode
+ * @return {String} the decoded string.
+ */
+exports.utf8decode = function utf8decode(buf) {
+    // check if we can use the TextDecoder API
+    // see http://encoding.spec.whatwg.org/#api
+    if (textDecoder) {
+        return textDecoder.decode(
+            utils.transformTo("uint8array", buf)
+        );
+    }
+    if (support.nodebuffer) {
+        return utils.transformTo("nodebuffer", buf).toString("utf-8");
+    }
+
+    buf = utils.transformTo(support.uint8array ? "uint8array" : "array", buf);
+
+    // return buf2string(buf);
+    // Chrome prefers to work with "small" chunks of data
+    // for the method buf2string.
+    // Firefox and Chrome has their own shortcut, IE doesn't seem to really care.
+    var result = [], k = 0, len = buf.length, chunk = 65536;
+    while (k < len) {
+        var nextBoundary = utf8border(buf, Math.min(k + chunk, len));
+        if (support.uint8array) {
+            result.push(buf2string(buf.subarray(k, nextBoundary)));
+        } else {
+            result.push(buf2string(buf.slice(k, nextBoundary)));
+        }
+        k = nextBoundary;
+    }
+    return result.join("");
+
+};
+
+/**
+ * Transform a bytes array (or a representation) representing an UTF-8 encoded
+ * string into a javascript string.
+ * @param {Array|Uint8Array|Buffer} buf the data de decode
+ * @param {Function} callback the function to call with the result.
+ *  The callback is called with :
+ *  - an error (if any)
+ *  - the decoded string.
+ */
+exports.utf8decodeAsync = function (content, callback) {
+    if (support.blob && typeof FileReader === "function") {
+        var blob = utils.newBlob(
+            utils.transformTo("arraybuffer", content),
+            "text/plain;charset=utf-8"
+        );
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            var txt = e.target.result;
+            callback(null, txt);
+        };
+        reader.readAsText(blob);
+        return;
+    }
+
+    // TODO
+    callback(null, this.utf8decode(content));
+};
+
+// vim: set shiftwidth=4 softtabstop=4:
+
+},{"./nodejsUtils":25,"./support":17,"./utils":19}],19:[function(_dereq_,module,exports){
+'use strict';
+var support = _dereq_('./support');
+var compressions = _dereq_('./compressions');
+var nodejsUtils = _dereq_('./nodejsUtils');
 /**
  * Convert a string to a "binary string" : a string containing only char codes between 0 and 255.
  * @param {string} str the string to transform.
@@ -1424,42 +1971,25 @@ exports.string2binary = function(str) {
     }
     return result;
 };
-/**
- * Create a Uint8Array from the string.
- * @param {string} str the string to transform.
- * @return {Uint8Array} the typed array.
- * @throws {Error} an Error if the browser doesn't support the requested feature.
- */
-exports.string2Uint8Array = function(str) {
-    return exports.transformTo("uint8array", str);
+exports.arrayBuffer2Blob = function(buffer) {
+    return exports.newBlob(buffer, "application/zip");
 };
 
 /**
- * Create a string from the Uint8Array.
- * @param {Uint8Array} array the array to transform.
- * @return {string} the string.
- * @throws {Error} an Error if the browser doesn't support the requested feature.
+ * Create a new blob with the given content and the given type.
+ * @param {String|ArrayBuffer} part the content to put in the blob. DO NOT use
+ * an Uint8Array because the stock browser of android 4 won't accept it (it
+ * will be silently converted to a string, "[object Uint8Array]").
+ * @param {String} type the mime type of the blob.
+ * @return {Blob} the created blob.
  */
-exports.uint8Array2String = function(array) {
-    return exports.transformTo("string", array);
-};
-/**
- * Create a blob from the given string.
- * @param {string} str the string to transform.
- * @return {Blob} the string.
- * @throws {Error} an Error if the browser doesn't support the requested feature.
- */
-exports.string2Blob = function(str) {
-    var buffer = exports.transformTo("arraybuffer", str);
-    return exports.arrayBuffer2Blob(buffer);
-};
-exports.arrayBuffer2Blob = function(buffer) {
+exports.newBlob = function(part, type) {
     exports.checkSupport("blob");
 
     try {
         // Blob constructor
-        return new Blob([buffer], {
-            type: "application/zip"
+        return new Blob([part], {
+            type: type
         });
     }
     catch (e) {
@@ -1468,8 +1998,8 @@ exports.arrayBuffer2Blob = function(buffer) {
             // deprecated, browser only, old way
             var Builder = window.BlobBuilder || window.WebKitBlobBuilder || window.MozBlobBuilder || window.MSBlobBuilder;
             var builder = new Builder();
-            builder.append(buffer);
-            return builder.getBlob('application/zip');
+            builder.append(part);
+            return builder.getBlob(type);
         }
         catch (e) {
 
@@ -1496,11 +2026,81 @@ function identity(input) {
  * @return {Array|ArrayBuffer|Uint8Array|Buffer} the updated array.
  */
 function stringToArrayLike(str, array) {
-    for (var i = 0; i < str.length; ++i) {
+    for (var i = 0, len = str.length; i < len; ++i) {
         array[i] = str.charCodeAt(i) & 0xFF;
     }
     return array;
 }
+
+/**
+ * An helper for the function arrayLikeToString.
+ * This contains static informations and functions that
+ * can be optimized by the browser JIT compiler.
+ */
+var arrayToStringHelper = {
+    /**
+     * Transform an array of int into a string, chunk by chunk.
+     * See the performances notes on arrayLikeToString.
+     * @param {Array|ArrayBuffer|Uint8Array|Buffer} array the array to transform.
+     * @param {String} type the type of the array.
+     * @param {Integer} chunk the chunk size.
+     * @return {String} the resulting string.
+     * @throws Error if the chunk is too big for the stack.
+     */
+    stringifyByChunk: function(array, type, chunk) {
+        var result = [], k = 0, len = array.length;
+        // shortcut
+        if (len <= chunk) {
+            return String.fromCharCode.apply(null, array);
+        }
+        while (k < len) {
+            if (type === "array" || type === "nodebuffer") {
+                result.push(String.fromCharCode.apply(null, array.slice(k, Math.min(k + chunk, len))));
+            }
+            else {
+                result.push(String.fromCharCode.apply(null, array.subarray(k, Math.min(k + chunk, len))));
+            }
+            k += chunk;
+        }
+        return result.join("");
+    },
+    /**
+     * Call String.fromCharCode on every item in the array.
+     * This is the naive implementation, which generate A LOT of intermediate string.
+     * This should be used when everything else fail.
+     * @param {Array|ArrayBuffer|Uint8Array|Buffer} array the array to transform.
+     * @return {String} the result.
+     */
+    stringifyByChar: function(array){
+        var resultStr = "", len = array.length;
+        for(var i = 0; i < len; i++) {
+            resultStr += String.fromCharCode(array[i]);
+        }
+        return resultStr;
+    },
+    applyCanBeUsed : {
+        /**
+         * true if the browser accepts to use String.fromCharCode on Uint8Array
+         */
+        uint8array : (function () {
+            try {
+                return support.uint8array && String.fromCharCode.apply(null, new Uint8Array(1)).length === 1;
+            } catch (e) {
+                return false;
+            }
+        })(),
+        /**
+         * true if the browser accepts to use String.fromCharCode on nodejs Buffer.
+         */
+        nodebuffer : (function () {
+            try {
+                return support.nodebuffer && String.fromCharCode.apply(null, nodejsUtils.newBuffer(1)).length === 1;
+            } catch (e) {
+                return false;
+            }
+        })()
+    }
+};
 
 /**
  * Transform an array-like object to a string.
@@ -1517,50 +2117,32 @@ function arrayLikeToString(array) {
     // result += String.fromCharCode(array[i]); generate too many strings !
     //
     // This code is inspired by http://jsperf.com/arraybuffer-to-string-apply-performance/2
-    var chunk = 65536;
-    var result = [],
-        len = array.length,
+    var chunk = 65536,
         type = exports.getTypeOf(array),
-        k = 0,
         canUseApply = true;
-      try {
-         switch(type) {
-            case "uint8array":
-               String.fromCharCode.apply(null, new Uint8Array(0));
-               break;
-            case "nodebuffer":
-               String.fromCharCode.apply(null, nodeBuffer(0));
-               break;
-         }
-      } catch(e) {
-         canUseApply = false;
-      }
+    if (type === "uint8array") {
+        canUseApply = arrayToStringHelper.applyCanBeUsed.uint8array;
+    } else if (type === "nodebuffer") {
+        canUseApply = arrayToStringHelper.applyCanBeUsed.nodebuffer;
+    }
 
-      // no apply : slow and painful algorithm
-      // default browser on android 4.*
-      if (!canUseApply) {
-         var resultStr = "";
-         for(var i = 0; i < array.length;i++) {
-            resultStr += String.fromCharCode(array[i]);
-         }
-    return resultStr;
-    }
-    while (k < len && chunk > 1) {
-        try {
-            if (type === "array" || type === "nodebuffer") {
-                result.push(String.fromCharCode.apply(null, array.slice(k, Math.min(k + chunk, len))));
+    if (canUseApply) {
+        while (chunk > 1) {
+            try {
+                return arrayToStringHelper.stringifyByChunk(array, type, chunk);
+            } catch (e) {
+                chunk = Math.floor(chunk / 2);
             }
-            else {
-                result.push(String.fromCharCode.apply(null, array.subarray(k, Math.min(k + chunk, len))));
-            }
-            k += chunk;
-        }
-        catch (e) {
-            chunk = Math.floor(chunk / 2);
         }
     }
-    return result.join("");
+
+    // no apply or chunk error : slow and painful algorithm
+    // default browser on android 4.*
+    return arrayToStringHelper.stringifyByChar(array);
 }
+
+exports.applyFromCharCode = arrayLikeToString;
+
 
 /**
  * Copy the data from an array-like to an other array-like.
@@ -1569,7 +2151,7 @@ function arrayLikeToString(array) {
  * @return {Array|ArrayBuffer|Uint8Array|Buffer} the updated destination array.
  */
 function arrayLikeToArrayLike(arrayFrom, arrayTo) {
-    for (var i = 0; i < arrayFrom.length; i++) {
+    for (var i = 0, len = arrayFrom.length; i < len; i++) {
         arrayTo[i] = arrayFrom[i];
     }
     return arrayTo;
@@ -1591,7 +2173,7 @@ transform["string"] = {
         return stringToArrayLike(input, new Uint8Array(input.length));
     },
     "nodebuffer": function(input) {
-        return stringToArrayLike(input, nodeBuffer(input.length));
+        return stringToArrayLike(input, nodejsUtils.newBuffer(input.length));
     }
 };
 
@@ -1606,7 +2188,7 @@ transform["array"] = {
         return new Uint8Array(input);
     },
     "nodebuffer": function(input) {
-        return nodeBuffer(input);
+        return nodejsUtils.newBuffer(input);
     }
 };
 
@@ -1623,7 +2205,7 @@ transform["arraybuffer"] = {
         return new Uint8Array(input);
     },
     "nodebuffer": function(input) {
-        return nodeBuffer(new Uint8Array(input));
+        return nodejsUtils.newBuffer(new Uint8Array(input));
     }
 };
 
@@ -1638,7 +2220,7 @@ transform["uint8array"] = {
     },
     "uint8array": identity,
     "nodebuffer": function(input) {
-        return nodeBuffer(input);
+        return nodejsUtils.newBuffer(input);
     }
 };
 
@@ -1693,7 +2275,7 @@ exports.getTypeOf = function(input) {
     if (Object.prototype.toString.call(input) === "[object Array]") {
         return "array";
     }
-    if (support.nodebuffer && nodeBuffer.test(input)) {
+    if (support.nodebuffer && nodejsUtils.isBuffer(input)) {
         return "nodebuffer";
     }
     if (support.uint8array && input instanceof Uint8Array) {
@@ -1759,16 +2341,133 @@ exports.isRegExp = function (object) {
     return Object.prototype.toString.call(object) === "[object RegExp]";
 };
 
+/**
+ * Defer the call of a function.
+ * @param {Function} callback the function to call asynchronously.
+ * @param {Array} args the arguments to give to the callback.
+ */
+exports.delay = function(callback, args) {
+    setTimeout(function () {callback.apply(null, args);}, 0);
+};
 
-},{"./compressions":3,"./nodeBuffer":17,"./support":12}],15:[function(require,module,exports){
+/**
+ * Execute asynchronous functions (steps) in sequence and call the callback
+ * once finished.
+ * Each step has the following signature :
+ * function (content, cb) {...}
+ * the content is the success of the previous step.
+ * the step's callback and the main callback have the following signature :
+ * callback(err, content) {...}
+ * If a step fails (calls its callback with an error) the whole process stops
+ * and the main callback is called with this error.
+ * @param {Object} initialValue the first value to send to the chain.
+ * @param {Array} steps the steps to call.
+ * @param {Function} callback the main callback.
+ */
+exports.asyncSequence = function (initialValue, steps, callback) {
+
+    var iter = function (err, res) {
+
+        if (err) {
+            steps = [];
+            callback(err, null);
+            return;
+        }
+
+        if (steps.length) {
+            var fn = steps.shift();
+            try {
+                fn(res, iter);
+            } catch (e) {
+                steps = [];
+                callback(e, null);
+                return;
+            }
+        } else {
+            callback(null, res);
+        }
+    };
+
+    exports.delay(iter, [null, initialValue]);
+};
+
+},{"./compressions":3,"./nodejsUtils":25,"./support":17}],20:[function(_dereq_,module,exports){
 'use strict';
-var StringReader = require('./stringReader');
-var NodeBufferReader = require('./nodeBufferReader');
-var Uint8ArrayReader = require('./uint8ArrayReader');
-var utils = require('./utils');
-var sig = require('./signature');
-var ZipEntry = require('./zipEntry');
-var support = require('./support');
+
+var utils = _dereq_('../utils');
+
+/**
+ * An object to write any content to a string.
+ * @constructor
+ */
+var StringWriter = function() {
+    this.data = [];
+};
+StringWriter.prototype = {
+    /**
+     * Append any content to the current string.
+     * @param {Object} input the content to add.
+     */
+    append: function(input) {
+        input = utils.transformTo("string", input);
+        this.data.push(input);
+    },
+    /**
+     * Finalize the construction an return the result.
+     * @return {string} the generated string.
+     */
+    finalize: function() {
+        return this.data.join("");
+    }
+};
+
+module.exports = StringWriter;
+
+},{"../utils":19}],21:[function(_dereq_,module,exports){
+'use strict';
+
+var utils = _dereq_('../utils');
+
+/**
+ * An object to write any content to an Uint8Array.
+ * @constructor
+ * @param {number} length The length of the array.
+ */
+var Uint8ArrayWriter = function(length) {
+    this.data = new Uint8Array(length);
+    this.index = 0;
+};
+Uint8ArrayWriter.prototype = {
+    /**
+     * Append any content to the current array.
+     * @param {Object} input the content to add.
+     */
+    append: function(input) {
+        if (input.length !== 0) {
+            // with an empty Uint8Array, Opera fails with a "Offset larger than array size"
+            input = utils.transformTo("uint8array", input);
+            this.data.set(input, this.index);
+            this.index += input.length;
+        }
+    },
+    /**
+     * Finalize the construction an return the result.
+     * @return {Uint8Array} the generated array.
+     */
+    finalize: function() {
+        return this.data;
+    }
+};
+
+module.exports = Uint8ArrayWriter;
+
+},{"../utils":19}],22:[function(_dereq_,module,exports){
+'use strict';
+var readerFor = _dereq_('./reader/readerFor');
+var utils = _dereq_('./utils');
+var sig = _dereq_('./signature');
+var ZipEntry = _dereq_('./zipEntry');
+var utf8 = _dereq_('./utf8');
 //  class ZipEntries {{{
 /**
  * All the entries in the zip file.
@@ -1790,8 +2489,9 @@ ZipEntries.prototype = {
      * @throws {Error} if it is an other signature.
      */
     checkSignature: function(expectedSignature) {
-        var signature = this.reader.readString(4);
-        if (signature !== expectedSignature) {
+        if (!this.reader.readAndCheckSignature(expectedSignature)) {
+            this.reader.index -= 4;
+            var signature = this.reader.readString(4);
             throw new Error("Corrupted zip or bug : unexpected signature " + "(" + utils.pretty(signature) + ", expected " + utils.pretty(expectedSignature) + ")");
         }
     },
@@ -1807,7 +2507,13 @@ ZipEntries.prototype = {
         this.centralDirOffset = this.reader.readInt(4);
 
         this.zipCommentLength = this.reader.readInt(2);
+        // warning : the encoding depends of the system locale
+        // On a linux machine with LANG=en_US.utf8, this field is utf8 encoded.
+        // On a windows machine, this field is encoded with the localized windows code page.
         this.zipComment = this.reader.readString(this.zipCommentLength);
+        // To get consistent behavior with the generation part, we will assume that
+        // this is utf8 encoded.
+        this.zipComment = utf8.utf8decode(this.zipComment);
     },
     /**
      * Read the end of the Zip 64 central directory.
@@ -1817,8 +2523,9 @@ ZipEntries.prototype = {
      */
     readBlockZip64EndOfCentral: function() {
         this.zip64EndOfCentralSize = this.reader.readInt(8);
-        this.versionMadeBy = this.reader.readString(2);
-        this.versionNeeded = this.reader.readInt(2);
+        this.reader.skip(4);
+        // this.versionMadeBy = this.reader.readString(2);
+        // this.versionNeeded = this.reader.readInt(2);
         this.diskNumber = this.reader.readInt(4);
         this.diskWithCentralDirStart = this.reader.readInt(4);
         this.centralDirRecordsOnThisDisk = this.reader.readInt(8);
@@ -1835,7 +2542,7 @@ ZipEntries.prototype = {
         while (index < extraDataSize) {
             extraFieldId = this.reader.readInt(2);
             extraFieldLength = this.reader.readInt(4);
-            extraFieldValue = this.reader.readString(extraFieldLength);
+            extraFieldValue = this.reader.readData(extraFieldLength);
             this.zip64ExtensibleData[extraFieldId] = {
                 id: extraFieldId,
                 length: extraFieldLength,
@@ -1858,8 +2565,8 @@ ZipEntries.prototype = {
      * Read the local files, based on the offset read in the central part.
      */
     readLocalFiles: function() {
-        var i, file;
-        for (i = 0; i < this.files.length; i++) {
+        var i, len, file;
+        for (i = 0, len = this.files.length; i < len; i++) {
             file = this.files[i];
             this.reader.setIndex(file.localHeaderOffset);
             this.checkSignature(sig.LOCAL_FILE_HEADER);
@@ -1874,7 +2581,7 @@ ZipEntries.prototype = {
         var file;
 
         this.reader.setIndex(this.centralDirOffset);
-        while (this.reader.readString(4) === sig.CENTRAL_FILE_HEADER) {
+        while (this.reader.readAndCheckSignature(sig.CENTRAL_FILE_HEADER)) {
             file = new ZipEntry({
                 zip64: this.zip64
             }, this.loadOptions);
@@ -1933,16 +2640,7 @@ ZipEntries.prototype = {
         }
     },
     prepareReader: function(data) {
-        var type = utils.getTypeOf(data);
-        if (type === "string" && !support.uint8array) {
-            this.reader = new StringReader(data, this.loadOptions.optimizedBinaryString);
-        }
-        else if (type === "nodebuffer") {
-            this.reader = new NodeBufferReader(data);
-        }
-        else {
-            this.reader = new Uint8ArrayReader(utils.transformTo("uint8array", data));
-        }
+        this.reader = readerFor(data, this.loadOptions.optimizedBinaryString);
     },
     /**
      * Read a zip file and create ZipEntries.
@@ -1958,12 +2656,14 @@ ZipEntries.prototype = {
 // }}} end of ZipEntries
 module.exports = ZipEntries;
 
-},{"./nodeBufferReader":17,"./signature":10,"./stringReader":11,"./support":12,"./uint8ArrayReader":13,"./utils":14,"./zipEntry":16}],16:[function(require,module,exports){
+// vim: set shiftwidth=4 softtabstop=4:
+
+},{"./reader/readerFor":13,"./signature":16,"./utf8":18,"./utils":19,"./zipEntry":23}],23:[function(_dereq_,module,exports){
 'use strict';
-var StringReader = require('./stringReader');
-var utils = require('./utils');
-var CompressedObject = require('./compressedObject');
-var jszipProto = require('./object');
+var readerFor = _dereq_('./reader/readerFor');
+var utils = _dereq_('./utils');
+var CompressedObject = _dereq_('./compressedObject');
+var jszipProto = _dereq_('./object');
 // class ZipEntry {{{
 /**
  * An entry in the zip file.
@@ -1993,45 +2693,6 @@ ZipEntry.prototype = {
         return (this.bitFlag & 0x0800) === 0x0800;
     },
     /**
-     * Prepare the function used to generate the compressed content from this ZipFile.
-     * @param {DataReader} reader the reader to use.
-     * @param {number} from the offset from where we should read the data.
-     * @param {number} length the length of the data to read.
-     * @return {Function} the callback to get the compressed content (the type depends of the DataReader class).
-     */
-    prepareCompressedContent: function(reader, from, length) {
-        return function() {
-            var previousIndex = reader.index;
-            reader.setIndex(from);
-            var compressedFileData = reader.readData(length);
-            reader.setIndex(previousIndex);
-
-            return compressedFileData;
-        };
-    },
-    /**
-     * Prepare the function used to generate the uncompressed content from this ZipFile.
-     * @param {DataReader} reader the reader to use.
-     * @param {number} from the offset from where we should read the data.
-     * @param {number} length the length of the data to read.
-     * @param {JSZip.compression} compression the compression used on this file.
-     * @param {number} uncompressedSize the uncompressed size to expect.
-     * @return {Function} the callback to get the uncompressed content (the type depends of the DataReader class).
-     */
-    prepareContent: function(reader, from, length, compression, uncompressedSize) {
-        return function() {
-
-            var compressedFileData = utils.transformTo(compression.uncompressInputType, this.getCompressedContent());
-            var uncompressedFileData = compression.uncompress(compressedFileData);
-
-            if (uncompressedFileData.length !== uncompressedSize) {
-                throw new Error("Bug : uncompressed data size mismatch");
-            }
-
-            return uncompressedFileData;
-        };
-    },
-    /**
      * Read the local part of a zip file and add the info in this object.
      * @param {DataReader} reader the reader to use.
      */
@@ -2057,7 +2718,8 @@ ZipEntry.prototype = {
         // Unfortunately, this lead also to some issues : http://seclists.org/fulldisclosure/2009/Sep/394
         this.fileNameLength = reader.readInt(2);
         localExtraFieldsLength = reader.readInt(2); // can't be sure this will be the same as the central dir
-        this.fileName = reader.readString(this.fileNameLength);
+        // the fileName is stored as binary data, the handleUTF8 method will take care of the encoding.
+        this.fileName = reader.readData(this.fileNameLength);
         reader.skip(localExtraFieldsLength);
 
         if (this.compressedSize == -1 || this.uncompressedSize == -1) {
@@ -2066,19 +2728,13 @@ ZipEntry.prototype = {
 
         compression = utils.findCompression(this.compressionMethod);
         if (compression === null) { // no compression found
-            throw new Error("Corrupted zip : compression " + utils.pretty(this.compressionMethod) + " unknown (inner file : " + this.fileName + ")");
+            throw new Error("Corrupted zip : compression " + utils.pretty(this.compressionMethod) + " unknown (inner file : " + utils.transformTo("string", this.fileName) + ")");
         }
-        this.decompressed = new CompressedObject();
-        this.decompressed.compressedSize = this.compressedSize;
-        this.decompressed.uncompressedSize = this.uncompressedSize;
-        this.decompressed.crc32 = this.crc32;
-        this.decompressed.compressionMethod = this.compressionMethod;
-        this.decompressed.getCompressedContent = this.prepareCompressedContent(reader, reader.index, this.compressedSize, compression);
-        this.decompressed.getContent = this.prepareContent(reader, reader.index, this.compressedSize, compression, this.uncompressedSize);
+        this.decompressed = new CompressedObject(this.compressedSize, this.uncompressedSize, this.crc32, compression, reader.readData(this.compressedSize));
 
         // we need to compute the crc32...
         if (this.loadOptions.checkCRC32) {
-            this.decompressed = utils.transformTo("string", this.decompressed.getContent());
+            this.decompressed = this.decompressed.getContent();
             if (jszipProto.crc32(this.decompressed) !== this.crc32) {
                 throw new Error("Corrupted zip : CRC32 mismatch");
             }
@@ -2090,15 +2746,16 @@ ZipEntry.prototype = {
      * @param {DataReader} reader the reader to use.
      */
     readCentralPart: function(reader) {
-        this.versionMadeBy = reader.readString(2);
-        this.versionNeeded = reader.readInt(2);
+        reader.skip(4);
+        // this.versionMadeBy = reader.readString(2);
+        // this.versionNeeded = reader.readInt(2);
         this.bitFlag = reader.readInt(2);
         this.compressionMethod = reader.readString(2);
         this.date = reader.readDate();
         this.crc32 = reader.readInt(4);
         this.compressedSize = reader.readInt(4);
         this.uncompressedSize = reader.readInt(4);
-        this.fileNameLength = reader.readInt(2);
+        var fileNameLength = reader.readInt(2);
         this.extraFieldsLength = reader.readInt(2);
         this.fileCommentLength = reader.readInt(2);
         this.diskNumberStart = reader.readInt(2);
@@ -2110,10 +2767,11 @@ ZipEntry.prototype = {
             throw new Error("Encrypted zip are not supported");
         }
 
-        this.fileName = reader.readString(this.fileNameLength);
+        // will be read in the local part, see the comments there
+        reader.skip(fileNameLength);
         this.readExtraFields(reader);
         this.parseZIP64ExtraField(reader);
-        this.fileComment = reader.readString(this.fileCommentLength);
+        this.fileComment = reader.readData(this.fileCommentLength);
 
         // warning, this is true only for zip with madeBy == DOS (plateform dependent feature)
         this.dir = this.externalFileAttributes & 0x00000010 ? true : false;
@@ -2129,7 +2787,7 @@ ZipEntry.prototype = {
         }
 
         // should be something, preparing the extra reader
-        var extraReader = new StringReader(this.extraFields[0x0001].value);
+        var extraReader = readerFor(this.extraFields[0x0001].value);
 
         // I really hope that these 64bits integer can fit in 32 bits integer, because js
         // won't let us have more.
@@ -2151,17 +2809,19 @@ ZipEntry.prototype = {
      * @param {DataReader} reader the reader to use.
      */
     readExtraFields: function(reader) {
-        var start = reader.index,
+        var end = reader.index + this.extraFieldsLength,
             extraFieldId,
             extraFieldLength,
             extraFieldValue;
 
-        this.extraFields = this.extraFields || {};
+        if (!this.extraFields) {
+            this.extraFields = {};
+        }
 
-        while (reader.index < start + this.extraFieldsLength) {
+        while (reader.index < end) {
             extraFieldId = reader.readInt(2);
             extraFieldLength = reader.readInt(2);
-            extraFieldValue = reader.readString(extraFieldLength);
+            extraFieldValue = reader.readData(extraFieldLength);
 
             this.extraFields[extraFieldId] = {
                 id: extraFieldId,
@@ -2175,12 +2835,22 @@ ZipEntry.prototype = {
      */
     handleUTF8: function() {
         if (this.useUTF8()) {
-            this.fileName = jszipProto.utf8decode(this.fileName);
-            this.fileComment = jszipProto.utf8decode(this.fileComment);
+            this.fileNameStr = jszipProto.utf8decode(this.fileName);
+            this.fileCommentStr = jszipProto.utf8decode(this.fileComment);
         } else {
             var upath = this.findExtraFieldUnicodePath();
             if (upath !== null) {
-                this.fileName = upath;
+                this.fileNameStr = upath;
+            } else {
+                // ASCII text or unsupported code page
+                this.fileNameStr = utils.transformTo("string", this.fileName);
+            }
+            var ucomment = this.findExtraFieldUnicodeComment();
+            if (ucomment !== null) {
+                this.fileNameStr = ucomment;
+            } else {
+                // ASCII text or unsupported code page
+                this.fileCommentStr = utils.transformTo("string", this.fileComment);
             }
         }
     },
@@ -2192,7 +2862,7 @@ ZipEntry.prototype = {
     findExtraFieldUnicodePath: function() {
         var upathField = this.extraFields[0x7075];
         if (upathField) {
-            var extraReader = new StringReader(upathField.value);
+            var extraReader = readerFor(upathField.value);
 
             // wrong version
             if (extraReader.readInt(1) !== 1) {
@@ -2204,94 +2874,331 @@ ZipEntry.prototype = {
                 return null;
             }
 
-            return jszipProto.utf8decode(extraReader.readString(upathField.length - 5));
+            return jszipProto.utf8decode(extraReader.readData(upathField.length - 5));
+        }
+        return null;
+    },
+
+    /**
+     * Find the unicode comment declared in the extra field, if any.
+     * @return {String} the unicode comment, null otherwise.
+     */
+    findExtraFieldUnicodeComment: function() {
+        var ucommentField = this.extraFields[0x6375];
+        if (ucommentField) {
+            var extraReader = readerFor(ucommentField.value);
+
+            // wrong version
+            if (extraReader.readInt(1) !== 1) {
+                return null;
+            }
+
+            // the crc of the comment changed, this field is out of date.
+            if (jszipProto.crc32(this.fileComment) !== extraReader.readInt(4)) {
+                return null;
+            }
+
+            return jszipProto.utf8decode(extraReader.readData(ucommentField.length - 5));
         }
         return null;
     }
 };
 module.exports = ZipEntry;
 
-},{"./compressedObject":2,"./object":9,"./stringReader":11,"./utils":14}],17:[function(require,module,exports){
+},{"./compressedObject":2,"./object":11,"./reader/readerFor":13,"./utils":19}],24:[function(_dereq_,module,exports){
+'use strict';
 
-},{}],18:[function(require,module,exports){
-// shim for using process in browser
+var utils = _dereq_('./utils');
+var crc32 = _dereq_('./crc32');
+var base64 = _dereq_('./base64');
+var utf8 = _dereq_('./utf8');
+var CompressedObject = _dereq_('./compressedObject');
 
-var process = module.exports = {};
-
-process.nextTick = (function () {
-    var canSetImmediate = typeof window !== 'undefined'
-    && window.setImmediate;
-    var canPost = typeof window !== 'undefined'
-    && window.postMessage && window.addEventListener
-    ;
-
-    if (canSetImmediate) {
-        return function (f) { return window.setImmediate(f) };
+/**
+ * Convert the content of the current ZipObject into the specified format.
+ * @param {String} outputType the type of the returned value.
+ * @param {Boolean} askUnicodeString when the outputType is a string.
+ *  set to true if the output must be an unicode string.
+ *  Set it to false to get a binary string.
+ * @return {String|ArrayBuffer|Uint8Array|Buffer} the result.
+ */
+var convertContent = function(outputType, askUnicodeString) {
+    var result = this._decompress();
+    if (this.options.base64) {
+        result = base64.decode(result);
     }
 
-    if (canPost) {
-        var queue = [];
-        window.addEventListener('message', function (ev) {
-            var source = ev.source;
-            if ((source === window || source === null) && ev.data === 'process-tick') {
-                ev.stopPropagation();
-                if (queue.length > 0) {
-                    var fn = queue.shift();
-                    fn();
-                }
-            }
-        }, true);
+    var isUnicodeString = !this.options.binary && utils.getTypeOf(result) === "string";
 
-        return function nextTick(fn) {
-            queue.push(fn);
-            window.postMessage('process-tick', '*');
-        };
+    if (isUnicodeString && !askUnicodeString) {
+        result = utf8.utf8encode(result);
     }
-
-    return function nextTick(fn) {
-        setTimeout(fn, 0);
-    };
-})();
-
-process.title = 'browser';
-process.browser = true;
-process.env = {};
-process.argv = [];
-
-process.binding = function (name) {
-    throw new Error('process.binding is not supported');
-}
-
-// TODO(shtylman)
-process.cwd = function () { return '/' };
-process.chdir = function (dir) {
-    throw new Error('process.chdir is not supported');
+    if (!isUnicodeString && askUnicodeString) {
+        result = utf8.utf8decode(result);
+    }
+    return utils.transformTo(outputType, result);
 };
 
-},{}],19:[function(require,module,exports){
+/**
+ * Convert the content of the current ZipObject into the specified format.
+ * @param {String} outputType the type of the returned value.
+ * @param {Boolean} askUnicodeString when the outputType is a string.
+ *  set to true if the output must be an unicode string.
+ *  Set it to false to get a binary string.
+ * @param {Function} callback the function to call with the result.
+ *  The callback is called with :
+ *  - an error (if any)
+ *  - the result.
+ */
+var convertContentAsync = function (outputType, askUnicodeString, callback) {
+    var self = this;
+    utils.asyncSequence(null, [function (res, cb) {
+        self._decompressAsync(cb);
+    }, function (res, cb) {
+        if (self.options.base64) {
+            res = base64.decode(res);
+        }
+
+        var isUnicodeString = !self.options.binary && utils.getTypeOf(res) === "string";
+
+        if (isUnicodeString && !askUnicodeString) {
+            utf8.utf8encodeAsync(res, cb);
+        } else if (!isUnicodeString && askUnicodeString) {
+            utf8.utf8decodeAsync(res, cb);
+        } else {
+            utils.delay(cb, [null, res]);
+        }
+    }, function (res, cb) {
+        utils.delay(cb, [null, utils.transformTo(outputType, res)]);
+    }], callback);
+};
+
+/**
+ * A simple object representing a file in the zip file.
+ * @constructor
+ * @param {string} name the name of the file
+ * @param {String|ArrayBuffer|Uint8Array|Buffer} data the data
+ * @param {Object} options the options of the file
+ */
+var ZipObject = function(name, data, options) {
+    this.name = name;
+    this.dir = options.dir;
+    this.date = options.date;
+    this.comment = options.comment;
+
+    this._data = data;
+    this.options = options;
+
+    /*
+     * This object contains initial values for dir and date.
+     * With them, we can check if the user changed the deprecated metadata in
+     * `ZipObject#options` or not.
+     */
+    this._initialMetadata = {
+      dir : options.dir,
+      date : options.date
+    };
+};
+
+ZipObject.prototype = {
+    /**
+     * Return the content as UTF8 string.
+     * @return {string} the UTF8 string.
+     */
+    asText: function() {
+        return convertContent.call(this, "string", true);
+    },
+    /**
+     * Returns the binary content.
+     * @return {string} the content as binary.
+     */
+    asBinary: function() {
+        return convertContent.call(this, "string", false);
+    },
+    /**
+     * Returns the content as a nodejs Buffer.
+     * @return {Buffer} the content as a Buffer.
+     */
+    asNodeBuffer: function() {
+        return convertContent.call(this, "nodebuffer", false);
+    },
+    /**
+     * Returns the content as an Uint8Array.
+     * @return {Uint8Array} the content as an Uint8Array.
+     */
+    asUint8Array: function() {
+        return convertContent.call(this, "uint8array", false);
+    },
+    /**
+     * Returns the content as an ArrayBuffer.
+     * @return {ArrayBuffer} the content as an ArrayBufer.
+     */
+    asArrayBuffer: function() {
+        return convertContent.call(this, "arraybuffer", false);
+    },
+    /**
+     * Convert the content as UTF8 string.
+     * @param {Function} cb the callback which will receive an error (if any)
+     * and the converted content.
+     */
+    asTextAsync: function(cb) {
+        convertContentAsync.call(this, "string", true, cb);
+    },
+    /**
+     * Convert the content as a binary string.
+     * @param {Function} cb the callback which will receive an error (if any)
+     * and the converted content.
+     */
+    asBinaryAsync: function(cb) {
+        convertContentAsync.call(this, "string", false, cb);
+    },
+    /**
+     * Convert the content as a nodejs Buffer.
+     * @param {Function} cb the callback which will receive an error (if any)
+     * and the converted content.
+     */
+    asNodeBufferAsync: function(cb) {
+        convertContentAsync.call(this, "nodebuffer", false, cb);
+    },
+    /**
+     * Convert the content as an Uint8Array.
+     * @param {Function} cb the callback which will receive an error (if any)
+     * and the converted content.
+     */
+    asUint8ArrayAsync: function(cb) {
+        convertContentAsync.call(this, "uint8array", false, cb);
+    },
+    /**
+     * Convert the content as an ArrayBuffer.
+     * @param {Function} cb the callback which will receive an error (if any)
+     * and the converted content.
+     */
+    asArrayBufferAsync: function(cb) {
+        convertContentAsync.call(this, "arraybuffer", false, cb);
+    },
+    /**
+     * Compress the _data into a CompressedObject.
+     * @private
+     * @param {Object} compression the compression to use.
+     */
+    _compress: function(compression) {
+
+        if (this._data instanceof CompressedObject) {
+            this._data.recompress(compression);
+        } else {
+            // no (yet) compressed
+            var content = convertContent.call(this, compression.compressInputType, false);
+
+            var uncompressedSize = content.length;
+            var contentCrc32 = crc32(content);
+            var compressedContent = compression.compress(content);
+            var compressedSize = compressedContent.length;
+
+            this._data = new CompressedObject(compressedSize, uncompressedSize, contentCrc32, compression, compressedContent);
+        }
+
+        return this._data;
+    },
+    /**
+     * Compress the _data into a CompressedObject.
+     * @private
+     * @param {Object} compression the compression to use.
+     *  The callback is called with :
+     *  - an error (if any)
+     *  - the CompressedObject.
+     */
+    _compressAsync: function(compression, callback) {
+
+        var self = this;
+        if (this._data instanceof CompressedObject) {
+            this._data.recompressAsync(compression, callback);
+        } else {
+            // no (yet) compressed
+            utils.asyncSequence(this, [function(zipObject, cb) {
+                convertContentAsync.call(zipObject, compression.compressInputType, false, cb);
+            }, function (content, contentCallback) {
+                // an other call to asyncSequence to keep the content in a closure.
+                utils.asyncSequence(content, [compression.compressAsync, function (compressedContent, cb) {
+                    var uncompressedSize = content.length;
+                    var contentCrc32 = crc32(content);
+                    var compressedSize = compressedContent.length;
+
+                    self._data = new CompressedObject(compressedSize, uncompressedSize, contentCrc32, compression, compressedContent);
+
+                    cb(null, self._data);
+                }], contentCallback);
+            }], callback);
+        }
+    },
+    /**
+     * Decompress the _data (from a CompressedObject).
+     * @private
+     */
+    _decompress: function() {
+        if (this._data instanceof CompressedObject) {
+            this._data = this._data.getContent();
+            // just to be sure
+            this.options.base64 = false;
+            this.options.binary = true;
+        }
+        return this._data;
+    },
+    /**
+     * Decompress the _data (from a CompressedObject).
+     * @param {Function} callback the function to call with the decompressed content.
+     *  The callback is called with :
+     *  - an error (if any)
+     *  - the decompressed content in an unspecified format.
+     * @private
+     */
+    _decompressAsync: function(callback) {
+        var self = this;
+        if (this._data instanceof CompressedObject) {
+            this._data.getContentAsync(function (err, content) {
+                if(!err) {
+                    self._data = content;
+                    // just to be sure
+                    self.options.base64 = false;
+                    self.options.binary = true;
+                }
+                callback(err, content);
+            });
+        } else {
+            utils.delay(callback, [null, this._data]);
+        }
+    }
+};
+
+module.exports = ZipObject;
+
+// vim: set shiftwidth=4 softtabstop=4:
+
+},{"./base64":1,"./compressedObject":2,"./crc32":4,"./utf8":18,"./utils":19}],25:[function(_dereq_,module,exports){
+
+},{}],26:[function(_dereq_,module,exports){
 // Top level file is just a mixin of submodules & constants
 'use strict';
 
-var assign    = require('./lib/utils/common').assign;
+var assign    = _dereq_('./lib/utils/common').assign;
 
-var deflate   = require('./lib/deflate');
-var inflate   = require('./lib/inflate');
-var constants = require('./lib/zlib/constants');
+var deflate   = _dereq_('./lib/deflate');
+var inflate   = _dereq_('./lib/inflate');
+var constants = _dereq_('./lib/zlib/constants');
 
 var pako = {};
 
 assign(pako, deflate, inflate, constants);
 
 module.exports = pako;
-},{"./lib/deflate":20,"./lib/inflate":21,"./lib/utils/common":22,"./lib/zlib/constants":25}],20:[function(require,module,exports){
+},{"./lib/deflate":27,"./lib/inflate":28,"./lib/utils/common":29,"./lib/zlib/constants":32}],27:[function(_dereq_,module,exports){
 'use strict';
 
 
-var zlib_deflate = require('./zlib/deflate.js');
-var utils = require('./utils/common');
-var strings = require('./utils/strings');
-var msg = require('./zlib/messages');
-var zstream = require('./zlib/zstream');
+var zlib_deflate = _dereq_('./zlib/deflate.js');
+var utils = _dereq_('./utils/common');
+var strings = _dereq_('./utils/strings');
+var msg = _dereq_('./zlib/messages');
+var zstream = _dereq_('./zlib/zstream');
 
 
 /* Public constants ==========================================================*/
@@ -2645,17 +3552,17 @@ exports.Deflate = Deflate;
 exports.deflate = deflate;
 exports.deflateRaw = deflateRaw;
 exports.gzip = gzip;
-},{"./utils/common":22,"./utils/strings":23,"./zlib/deflate.js":27,"./zlib/messages":32,"./zlib/zstream":34}],21:[function(require,module,exports){
+},{"./utils/common":29,"./utils/strings":30,"./zlib/deflate.js":34,"./zlib/messages":39,"./zlib/zstream":41}],28:[function(_dereq_,module,exports){
 'use strict';
 
 
-var zlib_inflate = require('./zlib/inflate.js');
-var utils = require('./utils/common');
-var strings = require('./utils/strings');
-var c = require('./zlib/constants');
-var msg = require('./zlib/messages');
-var zstream = require('./zlib/zstream');
-var gzheader = require('./zlib/gzheader');
+var zlib_inflate = _dereq_('./zlib/inflate.js');
+var utils = _dereq_('./utils/common');
+var strings = _dereq_('./utils/strings');
+var c = _dereq_('./zlib/constants');
+var msg = _dereq_('./zlib/messages');
+var zstream = _dereq_('./zlib/zstream');
+var gzheader = _dereq_('./zlib/gzheader');
 
 
 /**
@@ -2932,7 +3839,7 @@ Inflate.prototype.onEnd = function(status) {
 
 /**
  * inflate(data[, options]) -> Uint8Array|Array|String
- * - data (Uint8Array|Array|String): input data to compress.
+ * - data (Uint8Array|Array|String): input data to decompress.
  * - options (Object): zlib inflate options.
  *
  * Decompress `data` with inflate/ungzip and `options`. Autodetect
@@ -2983,7 +3890,7 @@ function inflate(input, options) {
 
 /**
  * inflateRaw(data[, options]) -> Uint8Array|Array|String
- * - data (Uint8Array|Array|String): input data to compress.
+ * - data (Uint8Array|Array|String): input data to decompress.
  * - options (Object): zlib inflate options.
  *
  * The same as [[inflate]], but creates raw data, without wrapper
@@ -2998,7 +3905,7 @@ function inflateRaw(input, options) {
 
 /**
  * ungzip(data[, options]) -> Uint8Array|Array|String
- * - data (Uint8Array|Array|String): input data to compress.
+ * - data (Uint8Array|Array|String): input data to decompress.
  * - options (Object): zlib inflate options.
  *
  * Just shortcut to [[inflate]], because it autodetects format
@@ -3011,7 +3918,7 @@ exports.inflate = inflate;
 exports.inflateRaw = inflateRaw;
 exports.ungzip  = inflate;
 
-},{"./utils/common":22,"./utils/strings":23,"./zlib/constants":25,"./zlib/gzheader":28,"./zlib/inflate.js":30,"./zlib/messages":32,"./zlib/zstream":34}],22:[function(require,module,exports){
+},{"./utils/common":29,"./utils/strings":30,"./zlib/constants":32,"./zlib/gzheader":35,"./zlib/inflate.js":37,"./zlib/messages":39,"./zlib/zstream":41}],29:[function(_dereq_,module,exports){
 'use strict';
 
 
@@ -3114,17 +4021,24 @@ exports.setTyped = function (on) {
 };
 
 exports.setTyped(TYPED_OK);
-},{}],23:[function(require,module,exports){
+},{}],30:[function(_dereq_,module,exports){
 // String encode/decode helpers
 'use strict';
 
 
-var utils = require('./common');
+var utils = _dereq_('./common');
 
 
 // Quick check if we can use fast array to bin string conversion
+//
+// - apply(Array) can fail on Android 2.2
+// - apply(Uint8Array) can fail on iOS 5.1 Safary
+//
 var STR_APPLY_OK = true;
+var STR_APPLY_UIA_OK = true;
+
 try { String.fromCharCode.apply(null, [0]); } catch(__) { STR_APPLY_OK = false; }
+try { String.fromCharCode.apply(null, new Uint8Array(1)); } catch(__) { STR_APPLY_UIA_OK = false; }
 
 
 // Table with utf8 lengths (calculated by first byte of sequence)
@@ -3191,19 +4105,26 @@ exports.string2buf = function (str) {
   return buf;
 };
 
-
-// Convert byte array to binary string
-exports.buf2binstring = function(buf) {
+// Helper (used in 2 places)
+function buf2binstring(buf, len) {
   // use fallback for big arrays to avoid stack overflow
-  if (STR_APPLY_OK && buf.length < 65537) {
-    return String.fromCharCode.apply(null, buf);
+  if (len < 65537) {
+    if ((buf.subarray && STR_APPLY_UIA_OK) || (!buf.subarray && STR_APPLY_OK)) {
+      return String.fromCharCode.apply(null, utils.shrinkBuf(buf, len));
+    }
   }
 
   var result = '';
-  for(var i=0, len=buf.length; i < len; i++) {
+  for(var i=0; i < len; i++) {
     result += String.fromCharCode(buf[i]);
   }
   return result;
+}
+
+
+// Convert byte array to binary string
+exports.buf2binstring = function(buf) {
+  return buf2binstring(buf, buf.length);
 };
 
 
@@ -3219,7 +4140,7 @@ exports.binstring2buf = function(str) {
 
 // convert array to string
 exports.buf2string = function (buf, max) {
-  var str, i, out, c, c_len;
+  var i, out, c, c_len;
   var len = max || buf.length;
 
   // Reserve max possible length (2 words per char)
@@ -3256,16 +4177,7 @@ exports.buf2string = function (buf, max) {
     }
   }
 
-  if (STR_APPLY_OK) {
-    return String.fromCharCode.apply(null, utils.shrinkBuf(utf16buf, out));
-  }
-
-  // Fallback, when String.fromCharCode.apply not available
-  str = '';
-  for (i=0, len=out; i<len; i++) {
-    str += String.fromCharCode(utf16buf[i]);
-  }
-  return str;
+  return buf2binstring(utf16buf, out);
 };
 
 
@@ -3296,7 +4208,7 @@ exports.utf8border = function(buf, max) {
   return (pos + _utf8len[buf[pos]] > max) ? pos : max;
 };
 
-},{"./common":22}],24:[function(require,module,exports){
+},{"./common":29}],31:[function(_dereq_,module,exports){
 'use strict';
 
 // Note: adler32 takes 12% for level 0 and 2% for level 6.
@@ -3329,7 +4241,7 @@ function adler32(adler, buf, len, pos) {
 
 
 module.exports = adler32;
-},{}],25:[function(require,module,exports){
+},{}],32:[function(_dereq_,module,exports){
 module.exports = {
 
   /* Allowed flush values; see deflate() and inflate() below for details */
@@ -3377,7 +4289,7 @@ module.exports = {
   Z_DEFLATED:               8
   //Z_NULL:                 null // Use -1 or null inline, depending on var type
 };
-},{}],26:[function(require,module,exports){
+},{}],33:[function(_dereq_,module,exports){
 'use strict';
 
 // Note: we can't get significant speed boost here.
@@ -3419,14 +4331,14 @@ function crc32(crc, buf, len, pos) {
 
 
 module.exports = crc32;
-},{}],27:[function(require,module,exports){
+},{}],34:[function(_dereq_,module,exports){
 'use strict';
 
-var utils   = require('../utils/common');
-var trees   = require('./trees');
-var adler32 = require('./adler32');
-var crc32   = require('./crc32');
-var msg   = require('./messages');
+var utils   = _dereq_('../utils/common');
+var trees   = _dereq_('./trees');
+var adler32 = _dereq_('./adler32');
+var crc32   = _dereq_('./crc32');
+var msg   = _dereq_('./messages');
 
 /* Public constants ==========================================================*/
 /* ===========================================================================*/
@@ -5185,7 +6097,7 @@ exports.deflatePending = deflatePending;
 exports.deflatePrime = deflatePrime;
 exports.deflateTune = deflateTune;
 */
-},{"../utils/common":22,"./adler32":24,"./crc32":26,"./messages":32,"./trees":33}],28:[function(require,module,exports){
+},{"../utils/common":29,"./adler32":31,"./crc32":33,"./messages":39,"./trees":40}],35:[function(_dereq_,module,exports){
 'use strict';
 
 
@@ -5226,7 +6138,7 @@ function GZheader() {
 }
 
 module.exports = GZheader;
-},{}],29:[function(require,module,exports){
+},{}],36:[function(_dereq_,module,exports){
 'use strict';
 
 // See state defs from inflate.js
@@ -5553,15 +6465,15 @@ module.exports = function inflate_fast(strm, start) {
   return;
 };
 
-},{}],30:[function(require,module,exports){
+},{}],37:[function(_dereq_,module,exports){
 'use strict';
 
 
-var utils = require('../utils/common');
-var adler32 = require('./adler32');
-var crc32   = require('./crc32');
-var inflate_fast = require('./inffast');
-var inflate_table = require('./inftrees');
+var utils = _dereq_('../utils/common');
+var adler32 = _dereq_('./adler32');
+var crc32   = _dereq_('./crc32');
+var inflate_fast = _dereq_('./inffast');
+var inflate_table = _dereq_('./inftrees');
 
 var CODES = 0;
 var LENS = 1;
@@ -7057,11 +7969,11 @@ exports.inflateSync = inflateSync;
 exports.inflateSyncPoint = inflateSyncPoint;
 exports.inflateUndermine = inflateUndermine;
 */
-},{"../utils/common":22,"./adler32":24,"./crc32":26,"./inffast":29,"./inftrees":31}],31:[function(require,module,exports){
+},{"../utils/common":29,"./adler32":31,"./crc32":33,"./inffast":36,"./inftrees":38}],38:[function(_dereq_,module,exports){
 'use strict';
 
 
-var utils = require('../utils/common');
+var utils = _dereq_('../utils/common');
 
 var MAXBITS = 15;
 var ENOUGH_LENS = 852;
@@ -7384,7 +8296,7 @@ module.exports = function inflate_table(type, lens, lens_index, codes, table, ta
   opts.bits = root;
   return 0;
 };
-},{"../utils/common":22}],32:[function(require,module,exports){
+},{"../utils/common":29}],39:[function(_dereq_,module,exports){
 'use strict';
 
 module.exports = {
@@ -7398,11 +8310,11 @@ module.exports = {
   '-5':   'buffer error',        /* Z_BUF_ERROR     (-5) */
   '-6':   'incompatible version' /* Z_VERSION_ERROR (-6) */
 };
-},{}],33:[function(require,module,exports){
+},{}],40:[function(_dereq_,module,exports){
 'use strict';
 
 
-var utils = require('../utils/common');
+var utils = _dereq_('../utils/common');
 
 /* Public constants ==========================================================*/
 /* ===========================================================================*/
@@ -8598,7 +9510,7 @@ exports._tr_stored_block = _tr_stored_block;
 exports._tr_flush_block  = _tr_flush_block;
 exports._tr_tally = _tr_tally;
 exports._tr_align = _tr_align;
-},{"../utils/common":22}],34:[function(require,module,exports){
+},{"../utils/common":29}],41:[function(_dereq_,module,exports){
 'use strict';
 
 
@@ -8628,7 +9540,6 @@ function ZStream() {
 }
 
 module.exports = ZStream;
-},{}]},{},[7])
-(7)
+},{}]},{},[9])
+(9)
 });
-;
